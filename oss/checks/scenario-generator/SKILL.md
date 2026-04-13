@@ -48,6 +48,16 @@ Do NOT proceed with scenario generation until you have at least items 1-3 from t
 
 Once you have enough context, follow these steps:
 
+### Step 0: Ensure `giskard-checks` is Installed
+
+Before generating any code, check if `giskard-checks` is installed. If not, install it:
+
+```bash
+pip install giskard-checks
+```
+
+Do NOT skip this step. The generated scenarios will fail at import time without this package.
+
 ### Step 1: Analyze the Agent and Identify Attack Surfaces
 
 Based on the agent description and fears, identify specific attack surfaces. Consult `references/attack-patterns.md` for the full catalog of adversarial patterns.
