@@ -23,3 +23,13 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
     </tr>
   </tbody>
 </table>
+
+## Install as a Claude Code Plugin
+
+This repository can also be used as a [Claude Code plugin](https://code.claude.com/docs/en/plugins). Clone the repo and start Claude with the `--plugin-dir` flag pointing at it:
+
+```bash
+claude --plugin-dir ./giskard-skills
+```
+
+Once Claude Code is running, use the `/giskard-skills` command to list the available skills.
