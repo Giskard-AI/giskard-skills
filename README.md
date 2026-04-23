@@ -11,8 +11,8 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
   <thead>
     <tr>
       <th width="20%">Skill</th>
-      <th width="30%">Install Command</th>
-      <th>When to Use</th>
+      <th width="40%">Install Command</th>
+      <th width="40%">When to Use</th>
     </tr>
   </thead>
   <tbody>
