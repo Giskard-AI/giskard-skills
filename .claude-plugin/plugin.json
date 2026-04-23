@@ -1,0 +1,9 @@
+{
+    "name": "giskard-skills",
+    "description": "Skills to streamline adoption and usage of Giskard products.",
+    "version": "1.0.0",
+    "author": {
+        "name": "Giskard"
+    },
+    "skills": ["./oss/checks/"]
+}
