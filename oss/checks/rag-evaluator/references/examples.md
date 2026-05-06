@@ -70,8 +70,8 @@ paraphrase = (
     .interact(inputs="leave for new parents, process?")
     .check(SemanticSimilarity(
         name="answers_consistent",
-        reference_key="trace.interactions[0].outputs",  # compare turn 1 to turn 0
-        text_key="trace.interactions[1].outputs",
+        reference_text_key="trace.interactions[0].outputs",  # compare turn 1 to turn 0
+        actual_answer_key="trace.interactions[1].outputs",
         threshold=0.7,
     ))
 )
@@ -180,14 +180,17 @@ if __name__ == "__main__":
 
 ## Example 3: Agent + Exposed Retriever (retrieval quality eval)
 
-**Setup**: User exposes both the end-to-end agent AND the retriever as separate functions. Adds retrieval quality eval (precision/recall@k).
+**Setup**: User exposes both the end-to-end agent AND the retriever as separate functions. Adds retrieval quality eval using multiple metrics from `references/retrieval-metrics.md`.
+
+This example imports the metric formulas from the reference. Paste those formulas (`recall_at_k`, `precision_at_k`, `hit_at_k`, `mrr`, `ndcg_at_k`) inline if you want a single self-contained file.
 
 ```python
 import asyncio
+import math
 from pathlib import Path
 from giskard.checks import (
     Scenario, Suite, Groundedness, AnswerRelevance,
-    FnCheck, GreaterEquals, set_default_generator,
+    FnCheck, set_default_generator,
 )
 from giskard.agents.generators import Generator
 
@@ -197,36 +200,94 @@ def your_rag_agent(inputs: str) -> dict:
     """Your RAG agent. Returns {"answer": str, "retrieved_ids": list[str]} so we can eval retrieval."""
     raise NotImplementedError("Replace with your agent")
 
-# REPLACE: Test set with relevance labels (which doc IDs *should* be retrieved)
+# ---- Metric formulas (see references/retrieval-metrics.md for the full catalogue) ----
+
+def recall_at_k(relevant_ids: set[str], retrieved_ids: list[str], k: int) -> float:
+    if not relevant_ids:
+        return 1.0
+    return len(set(retrieved_ids[:k]) & relevant_ids) / len(relevant_ids)
+
+def precision_at_k(relevant_ids: set[str], retrieved_ids: list[str], k: int) -> float:
+    if k == 0:
+        return 0.0
+    return len(set(retrieved_ids[:k]) & relevant_ids) / k
+
+def mrr(relevant_ids: set[str], retrieved_ids: list[str]) -> float:
+    for i, doc_id in enumerate(retrieved_ids, start=1):
+        if doc_id in relevant_ids:
+            return 1.0 / i
+    return 0.0
+
+def ndcg_at_k(relevant_ids: set[str], retrieved_ids: list[str], k: int) -> float:
+    if not relevant_ids:
+        return 1.0
+    top_k = retrieved_ids[:k]
+    dcg = sum((1.0 if d in relevant_ids else 0.0) / math.log2(i + 2) for i, d in enumerate(top_k))
+    ideal_hits = min(len(relevant_ids), k)
+    idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_hits))
+    return dcg / idcg if idcg > 0 else 0.0
+
+# ---- Test set with relevance labels ----
+
+# REPLACE: load your labelled set; each entry needs a question and the doc IDs that should be retrieved
 TEST_CASES = [
     {
         "question": "What is the refund policy?",
         "context": ["Full refunds within 30 days; partial after that..."],
-        "relevant_doc_ids": ["policy/refunds-v3"],
-        "k": 5,
+        "relevant_ids": {"policy/refunds-v3"},
     },
     # ...
 ]
 
-def recall_at_k(relevant: list[str], retrieved: list[str], k: int) -> float:
-    if not relevant:
-        return 1.0
-    top_k = retrieved[:k]
-    return sum(1 for r in relevant if r in top_k) / len(relevant)
+K = 5
+RECALL_THRESHOLD = 0.8
+PRECISION_THRESHOLD = 0.4
+MRR_THRESHOLD = 0.5
+NDCG_THRESHOLD = 0.7
 
-def make_retrieval_check(tc: dict):
-    def fn(trace) -> bool:
-        retrieved = trace.last.outputs.get("retrieved_ids", [])
-        return recall_at_k(tc["relevant_doc_ids"], retrieved, tc["k"]) >= 0.8
-    return FnCheck(name=f"recall@{tc['k']}>=0.8", fn=fn)
+# ---- FnCheck factories ----
+
+def _retrieved(trace):
+    return trace.last.outputs.get("retrieved_ids", [])
+
+def make_recall_check(relevant_ids: set[str]) -> FnCheck:
+    return FnCheck(
+        name=f"recall@{K}>={RECALL_THRESHOLD}",
+        fn=lambda trace: recall_at_k(relevant_ids, _retrieved(trace), K) >= RECALL_THRESHOLD,
+    )
+
+def make_precision_check(relevant_ids: set[str]) -> FnCheck:
+    return FnCheck(
+        name=f"precision@{K}>={PRECISION_THRESHOLD}",
+        fn=lambda trace: precision_at_k(relevant_ids, _retrieved(trace), K) >= PRECISION_THRESHOLD,
+    )
+
+def make_mrr_check(relevant_ids: set[str]) -> FnCheck:
+    return FnCheck(
+        name=f"mrr>={MRR_THRESHOLD}",
+        fn=lambda trace: mrr(relevant_ids, _retrieved(trace)) >= MRR_THRESHOLD,
+    )
+
+def make_ndcg_check(relevant_ids: set[str]) -> FnCheck:
+    return FnCheck(
+        name=f"ndcg@{K}>={NDCG_THRESHOLD}",
+        fn=lambda trace: ndcg_at_k(relevant_ids, _retrieved(trace), K) >= NDCG_THRESHOLD,
+    )
+
+# ---- Build scenarios ----
 
 scenarios = []
 for i, tc in enumerate(TEST_CASES):
     scenario = (
         Scenario(f"rag_with_retrieval_{i}")
         .interact(inputs=tc["question"])
-        .check(make_retrieval_check(tc))  # retrieval quality
-        .check(Groundedness(                # generation quality
+        # Retrieval quality: four metrics with thresholds
+        .check(make_recall_check(tc["relevant_ids"]))
+        .check(make_precision_check(tc["relevant_ids"]))
+        .check(make_mrr_check(tc["relevant_ids"]))
+        .check(make_ndcg_check(tc["relevant_ids"]))
+        # Generation quality: groundedness against the labelled context
+        .check(Groundedness(
             name="grounded",
             context=tc["context"],
             answer_key="trace.last.outputs.answer",
@@ -242,16 +303,44 @@ suite = Suite(name="rag_eval_full")
 for s in scenarios:
     suite.append(s)
 
+# ---- Run, then aggregate raw metric means for trend tracking ----
+
+def aggregate_retrieval_metrics(suite_result, test_cases, k: int = K):
+    recalls, precisions, mrrs, ndcgs = [], [], [], []
+    for tc, scen in zip(test_cases, suite_result.results):
+        try:
+            retrieved = scen.final_trace.last.outputs.get("retrieved_ids", [])
+        except Exception:
+            continue
+        relevant = set(tc["relevant_ids"])
+        recalls.append(recall_at_k(relevant, retrieved, k))
+        precisions.append(precision_at_k(relevant, retrieved, k))
+        mrrs.append(mrr(relevant, retrieved))
+        ndcgs.append(ndcg_at_k(relevant, retrieved, k))
+    n = len(recalls) or 1
+    return {
+        f"recall@{k}_mean": sum(recalls) / n,
+        f"precision@{k}_mean": sum(precisions) / n,
+        "mrr_mean": sum(mrrs) / n,
+        f"ndcg@{k}_mean": sum(ndcgs) / n,
+    }
+
 async def main():
     result = await suite.run(target=your_rag_agent)
     result.print_report()
+    print("\nRaw metric means:")
+    for name, value in aggregate_retrieval_metrics(result, TEST_CASES).items():
+        print(f"  {name}: {value:.3f}")
     return result
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Note: `Groundedness` and `AnswerRelevance` use `answer_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they'd try to evaluate the whole dict as the answer.
+Notes:
+- `Groundedness` and `AnswerRelevance` use `answer_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer.
+- The `FnCheck` thresholds gate the suite (pass/fail). The `aggregate_retrieval_metrics` post-step gives you the raw means alongside, useful for tracking trends across releases without changing thresholds.
+- For sparse-label setups (you suspect unlabelled-but-relevant docs in the corpus), swap `recall_at_k` for `inf_ap` (also in `references/retrieval-metrics.md`).
 
 ---
 
@@ -285,9 +374,9 @@ for i, tc in enumerate(TEST_CASES):
         .interact(inputs=tc["question"])
         .check(SemanticSimilarity(
             name="similar_to_gold",
-            reference=tc["reference_answer"],
-            text_key="trace.last.outputs",
-            threshold=0.8,
+            reference_text=tc["reference_answer"],
+            actual_answer_key="trace.last.outputs",
+            threshold=0.55,
         ))
         .check(LLMJudge(
             name="factually_matches_gold",

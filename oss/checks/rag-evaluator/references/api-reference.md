@@ -183,12 +183,15 @@ Fields:
 ## Built-in (rule-based) Checks
 
 ```python
-# Keyword presence/absence
-StringMatching(keyword="Paris", text_key="trace.last.outputs", expected=True)
-StringMatching(keyword="medical advice", text_key="trace.last.outputs", expected=False)
+# Keyword presence: passes if `keyword` is found in the resolved text.
+StringMatching(name="cites_paris", keyword="Paris", text_key="trace.last.outputs")
+
+# Keyword absence: wrap StringMatching in Not. There is NO `expected=False` parameter;
+# StringMatching silently ignores unknown kwargs and only checks for presence.
+Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", text_key="trace.last.outputs"))
 
 # Regex
-RegexMatching(pattern=r"\[\d+\]", text_key="trace.last.outputs")  # checks for citation markers
+RegexMatching(name="has_citation", pattern=r"\[\d+\]", text_key="trace.last.outputs")  # citation markers
 
 # Equality / comparison
 Equals(expected_value="Paris", key="trace.last.outputs")
@@ -213,11 +216,20 @@ Embedding-based similarity to a reference string.
 ```python
 SemanticSimilarity(
     name="matches_gold",
-    reference="The capital of France is Paris.",
-    text_key="trace.last.outputs",
-    threshold=0.85,
+    reference_text="The capital of France is Paris.",
+    actual_answer_key="trace.last.outputs",  # adjust to ".answer" if SUT returns dict
+    threshold=0.5,                            # default is 0.95 which is very strict
 )
 ```
+
+Fields:
+- `reference_text: str | None`: static gold; if set, takes priority over `reference_text_key`.
+- `reference_text_key: str`: JSONPath; default `"trace.last.metadata.reference_text"`. Use this if you attach the reference into the trace metadata at `.interact()` time.
+- `actual_answer_key: str`: JSONPath; default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
+- `threshold: float`: default `0.95` (very strict; calibrate downward to 0.5-0.7 for natural-language answers, where phrasing varies but meaning is preserved).
+- `embedding_model`: optional; the check uses a default embedder if you do not pass one.
+
+Common mistake: passing `reference=` or `text_key=` (incorrect names). The check will silently use defaults and look for the reference at `trace.last.metadata.reference_text`, failing with "No value found for reference text key".
 
 ## Multi-turn scenarios
 
@@ -271,3 +283,7 @@ For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML ex
 - **Groundedness always passes / always fails**: forgot `set_default_generator(...)`, or `context` and `context_key` both set with `context` empty.
 - **`AnswerRelevance` returns "relevant" for off-topic answers**: pass a `context="..."` describing the agent's domain so the judge has scope to ground its decision.
 - **`FnCheck` errors on `trace.last.outputs`**: `fn` receives a Trace object, not a string. Use `lambda trace: ... trace.last.outputs ...`, not `lambda outputs: ...`.
+- **`SemanticSimilarity` errors with "No value found for reference text key"**: you passed `reference=` or `text_key=`. The actual fields are `reference_text=` and `actual_answer_key=`. Default threshold is 0.95 (very strict); calibrate to 0.5-0.7 for natural-language answers.
+- **`StringMatching(expected=False)` silently does nothing**: `expected=` is not a real field; pydantic accepts and ignores it. To check for absence, wrap in `Not(StringMatching(...))`.
+- **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`. Use `scen.final_trace.last.outputs`.
+- **Sync target deadlocks with "This event loop is already running"**: giskard's runner already holds an event loop. If the underlying SDK exposes a sync entry point that internally calls `asyncio.run()`, invoking it from inside the SUT will deadlock. Define the SUT as `async def agent(inputs):` and `await` the SDK's async API instead. Typical names for the async API are `arun`, `ainvoke`, `aquery`, or a `run` method that returns a coroutine.

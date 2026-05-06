@@ -89,7 +89,7 @@ Layer checks so failures surface fast and cheaply:
 
 1. **Rule-based** sanity checks (free, deterministic):
    - `StringMatching` / `RegexMatching`: does the answer contain expected keywords or citation markers? Does it refuse with phrases like "I don't have information"?
-   - `FnCheck`: custom logic (e.g., "answer is non-empty", "answer mentions at least one source")
+   - `FnCheck`: custom logic (e.g., "answer is non-empty", "answer mentions at least one source"). For retrieval-quality metrics (Recall@K, Precision@K, MRR, NDCG@K, HitRate@K, InfAP), see `references/retrieval-metrics.md` for ready-to-paste implementations.
    - `Equals`, `LesserThan`, etc.: numerical / structured assertions
 
 2. **Semantic** (cheap, embedding-based):
@@ -210,6 +210,7 @@ These rules exist because subtle violations cause silent failures. Follow them e
 - ALWAYS wrap scenarios in a `Suite`. Even a single scenario should go in a Suite, because `Suite` provides `pass_rate`, `print_report()`, and consistent result handling.
 - ALWAYS pass the SUT as `target=` to `suite.run(target=your_agent)`, NOT as `outputs=` in each `.interact()`. This avoids repetition and makes swapping SUTs trivial.
 - ALWAYS define the SUT with injectable parameter names: `def your_rag_agent(inputs): ...` or `def your_rag_agent(inputs, trace): ...`. Names like `query` are NOT injected.
+- Define the SUT as `async def your_rag_agent(inputs):` (and `await` the framework call inside) when the underlying SDK manages its own event loop. SDKs that internally call `asyncio.run()` from a sync entry point will deadlock with "This event loop is already running" because giskard's runner already holds the loop. Use the SDK's async API instead. Typical names: `arun`, `ainvoke`, `aquery`, or a `run` method that returns a coroutine you can `await`.
 - ALWAYS add type hints to the SUT stub so users immediately see the expected I/O shape. Match the user's actual return type: if they return a dict, hint `dict`, not `str`.
 - ALWAYS pass `name=` to every check. Unnamed checks show as "None" in the report, which is unreadable.
 - For `Groundedness` with **static** context: pass `context=[...]` directly; the same context is used for every run of that scenario.

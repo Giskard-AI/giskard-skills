@@ -81,21 +81,34 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 **What it measures**: Whether the retriever returns relevant documents for a query. Independent of generation quality; a perfect generator can't fix bad retrieval.
 
-**When it applies**: Only if the user exposes a separate retriever callable AND has relevance labels (which docs *should* be retrieved for which questions).
+**When it applies**: When the user exposes either a separate retriever callable, or an end-to-end agent that returns retrieved doc IDs alongside the answer. Strict-scoring metrics also need relevance labels (which doc IDs *should* be retrieved per question); cosine or LLM scoring can substitute when labels are absent (see `references/retrieval-metrics.md` Section 4).
 
 **Failure modes**:
 - Relevant doc is in the KB but not retrieved (recall failure)
 - Many irrelevant docs retrieved, drowning out the relevant one (precision failure)
 - Right doc retrieved but ranked too low to fit in the LLM's context window
+- The right doc is retrieved but its chunk variant has a different ID than the labelled one (a labelling artefact, not a real failure; cosine scoring rescues this)
+
+**Metrics catalogue**: Pick from `references/retrieval-metrics.md`. The most useful starting set:
+
+- `Recall@K`: of the labelled relevant docs, what fraction lands in the top-K? (Default headline.)
+- `Precision@K`: of the top-K, what fraction is relevant? (Pair with Recall@K.)
+- `HitRate@K`: did at least one relevant doc make the top-K? (Cheap floor.)
+- `MRR`: how high is the first relevant doc ranked? (Use when one or few docs are relevant per query.)
+- `NDCG@K`: ranking-aware, normalized to 1.0. (Use when position matters because top-K is truncated for the LLM.)
+- `InfAP`: handles unlabelled-but-relevant docs. (Use when labels are known to be incomplete.)
+
+The reference also shows three scoring strategies (Strict, Cosine, LLM-judged) that determine when a retrieved doc counts as "relevant". Strict scoring is the default; Cosine and LLM-judged unlock these metrics for setups with sparse or no labels.
 
 **Checks to use**:
-- `FnCheck` with a custom precision/recall@k function: operates on `trace.last.metadata` if the agent attaches retrieved IDs there, or on the retriever's direct output in a custom InteractionSpec.
-- `LesserThan` / `GreaterThan` for numerical thresholds (e.g., recall@5 ≥ 0.8)
+- `FnCheck` wrapping the metric formula (see `references/retrieval-metrics.md` for ready-to-paste implementations and FnCheck wrappers).
+- For tracking raw metric values (not just pass/fail), the same reference shows a `aggregate_retrieval_metrics` helper to run after the suite for trend tracking.
 
 **Test patterns**:
-- For each test question, label the doc IDs that should be retrieved (often a single chunk)
-- Compute `recall@k` (was the relevant doc in the top k?) and `precision@k` (what fraction of top-k are relevant?)
-- Test paraphrased queries: does retrieval stay stable across rewordings?
+- For each test question, label the doc IDs that should be retrieved (often a single chunk).
+- Compute `Recall@K` and `Precision@K` at K = 5 or 10 as the headline pair.
+- Add `MRR` if your retriever returns a long ranked list.
+- Test paraphrased queries to see whether retrieval stays stable across rewordings.
 
 ---
 
