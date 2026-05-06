@@ -1,0 +1,37 @@
+{
+  "skill_name": "rag-evaluator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "agent-with-kb",
+      "prompt": "I built an internal knowledge base assistant for our engineering team using LangChain + a Chroma vector store. It answers questions about our backend architecture by retrieving from ~200 markdown files of internal docs. I want to evaluate it. Specifically I'm worried about: (1) it sometimes confidently makes up things that aren't in the docs, (2) for questions our docs don't cover (e.g., 'how do I deploy to AWS?' — we use GCP), it just makes up an AWS answer. The agent function is `def answer(query: str) -> str` and calls our LangChain chain. Can you help me build evals for this?",
+      "expected_output": "A complete, runnable Python script (or notebook cells) using giskard.checks. Should include: agent stub, KB-anchored test cases (in-scope and out-of-scope), Groundedness checks, AnswerRelevance checks, Conformity rule for refusal on out-of-scope. Should use Suite, set_default_generator, and pass agent as target. Should ask 1-2 clarifying questions if KB samples not provided, but still produce reasonable scaffolding.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "name": "blackbox-agent",
+      "prompt": "I have a customer support chatbot deployed at our company. It's a black box — I just have a Python function `chatbot(message)` that returns a string. I don't have access to the underlying docs it uses. How can I evaluate it for hallucination and quality? I'm getting complaints that it's making up product features that don't exist.",
+      "expected_output": "Python code that handles the no-KB case gracefully: AnswerRelevance, Conformity rules for behavior, paraphrase consistency. Skill should be transparent that without a KB, groundedness can't be properly evaluated and explain that gap. Should NOT pretend to do groundedness without context. Should produce a runnable Suite.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 3,
+      "name": "advanced-retriever",
+      "prompt": "We have a RAG system over our scientific paper corpus. It exposes both an end-to-end query function `def ask(question: str) -> dict` (returns `{'answer': ..., 'cited_paper_ids': [...], 'retrieved_chunks': [...]}`) and a retriever `def retrieve(q, k=10) -> list[ChunkObject]`. I have a labelled set of ~50 questions with the paper IDs that should be retrieved. I want a comprehensive eval covering retrieval quality, groundedness, and citation accuracy.",
+      "expected_output": "Python code that uses the dict structure correctly: answer_key='trace.last.outputs.answer', context_key for groundedness pointing at retrieved_chunks, FnCheck for recall@k retrieval quality using cited_paper_ids vs labelled paper IDs, custom check or LLMJudge for citation accuracy. Should rename the SUT parameter from `question` to `inputs` or wrap it.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 4,
+      "name": "notebook-context",
+      "prompt": "I'm working in a Jupyter notebook called `rag_eval.ipynb`. My RAG agent is `qa_chain.invoke(question)` and returns a dict with `'answer'` and `'context'` keys. I have a sample list of 5 KB chunks I'm experimenting with. Can you add some giskard evaluation cells to test groundedness and answer relevance for me?",
+      "expected_output": "Code presented as notebook cells (NOT a single .py script with __main__), no asyncio.run() at the end (use `await` directly), uses dict-aware keys (answer_key='trace.last.outputs.answer'). Wraps the qa_chain in a function with `inputs` parameter for giskard injection. Final cell prints/displays the result.",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}
