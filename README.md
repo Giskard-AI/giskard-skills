@@ -21,6 +21,11 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
       <td><code>npx skills add Giskard-AI/giskard-skills --skill scenario-generator</code></td>
       <td>Use when a user describes their AI agent and wants to create adversarial test scenarios, red-team their AI, generate evaluation suites, or build checks using the <code>giskard.checks</code> library. Triggers on phrases like "create scenarios", "test my agent", "evaluate my chatbot", "red-team my AI", or "generate checks".</td>
     </tr>
+    <tr>
+      <td>rag-evaluator</td>
+      <td><code>npx skills add Giskard-AI/giskard-skills --skill rag-evaluator</code></td>
+      <td>Use when a user wants to evaluate a RAG (Retrieval-Augmented Generation) system or a Q&amp;A bot grounded in documents. Covers groundedness, answer relevance, retrieval quality, hallucination, citation accuracy, and out-of-scope refusal. Triggers on phrases like "evaluate my RAG", "test my retrieval", "check groundedness", "build a RAG eval suite", or "test if my agent hallucinates". Quality-focused; for adversarial / red-teaming use <code>scenario-generator</code> instead.</td>
+    </tr>
   </tbody>
 </table>
 
