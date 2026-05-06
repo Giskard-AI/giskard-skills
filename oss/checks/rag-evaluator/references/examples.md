@@ -14,7 +14,7 @@ All examples:
 
 **Setup**: User has a callable agent and an agent description, but no documents to ground against.
 
-**Coverage**: Answer relevance, behavioral conformity, refusal quality, paraphrase consistency. No groundedness — be transparent about this.
+**Coverage**: Answer relevance, behavioral conformity, refusal quality, paraphrase consistency. No groundedness; be transparent about this.
 
 ```python
 import asyncio
@@ -67,7 +67,7 @@ paraphrase = (
     Scenario("paraphrase_consistency")
     .interact(inputs="How do I request parental leave?")
     .interact(inputs="Where can I apply for paternity leave?")
-    .interact(inputs="leave for new parents — process?")
+    .interact(inputs="leave for new parents, process?")
     .check(SemanticSimilarity(
         name="answers_consistent",
         reference_key="trace.interactions[0].outputs",  # compare turn 1 to turn 0
@@ -355,7 +355,7 @@ multi_turn = (
     .check(AnswerRelevance(name="relevant_3"))
 )
 
-# Test that the agent maintains context across turns — references "them" should resolve to vacation days
+# Test that the agent maintains context across turns; references "them" should resolve to vacation days
 context_carry = (
     Scenario("context_carry")
     .interact(inputs="What's the parental leave policy?")
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
 If the user is in a Jupyter notebook, package the same code into cells. Recommended cell layout:
 
-**Cell 1 — Setup**:
+**Cell 1 (Setup)**:
 ```python
 from giskard.checks import (
     Scenario, Suite, Groundedness, AnswerRelevance, Conformity,
@@ -396,22 +396,22 @@ from giskard.agents.generators import Generator
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
-**Cell 2 — SUT (often already exists in the notebook)**:
+**Cell 2 (SUT, often already exists in the notebook)**:
 ```python
 # REPLACE: Wire to your existing agent. If the agent is already defined above, you can skip this cell.
 def your_rag_agent(inputs: str) -> str:
     return existing_agent.query(inputs)
 ```
 
-**Cell 3 — Test data**: defining `TEST_CASES`
+**Cell 3 (Test data)**: defining `TEST_CASES`
 
-**Cell 4 — Scenarios + Suite**: building the suite
+**Cell 4 (Scenarios + Suite)**: building the suite
 
-**Cell 5 — Run** (notebook idiom — no `asyncio.run()`):
+**Cell 5 (Run, notebook idiom; no `asyncio.run()`)**:
 ```python
 result = await suite.run(target=your_rag_agent)
 result.print_report()
 result  # rich pretty-print
 ```
 
-In notebooks, the cell's last expression is auto-displayed, so just put `result` at the end. Don't write to JSON unless the user asks — that's a script idiom.
+In notebooks, the cell's last expression is auto-displayed, so just put `result` at the end. Don't write to JSON unless the user asks; that's a script idiom.

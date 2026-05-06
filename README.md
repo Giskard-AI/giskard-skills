@@ -24,7 +24,7 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
     <tr>
       <td>rag-evaluator</td>
       <td><code>npx skills add Giskard-AI/giskard-skills --skill rag-evaluator</code></td>
-      <td>Use when a user wants to evaluate a RAG (Retrieval-Augmented Generation) system or a Q&amp;A bot grounded in documents — for groundedness, answer relevance, retrieval quality, hallucination, citation accuracy, or out-of-scope refusal. Triggers on phrases like "evaluate my RAG", "test my retrieval", "check groundedness", "build a RAG eval suite", or "test if my agent hallucinates". Quality-focused; for adversarial / red-teaming use <code>scenario-generator</code> instead.</td>
+      <td>Use when a user wants to evaluate a RAG (Retrieval-Augmented Generation) system or a Q&amp;A bot grounded in documents. Covers groundedness, answer relevance, retrieval quality, hallucination, citation accuracy, and out-of-scope refusal. Triggers on phrases like "evaluate my RAG", "test my retrieval", "check groundedness", "build a RAG eval suite", or "test if my agent hallucinates". Quality-focused; for adversarial / red-teaming use <code>scenario-generator</code> instead.</td>
     </tr>
   </tbody>
 </table>

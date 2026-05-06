@@ -8,9 +8,9 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 ## 1. Groundedness / Faithfulness
 
-**What it measures**: Whether the agent's answer is supported by the provided context. The single most important RAG check — the whole point of retrieval is to ground the answer in real sources.
+**What it measures**: Whether the agent's answer is supported by the provided context. The single most important RAG check. The whole point of retrieval is to ground the answer in real sources.
 
-**When it applies**: Whenever a context is available — either statically (KB chunks attached to test cases) or dynamically (agent returns retrieved chunks).
+**When it applies**: Whenever a context is available, either statically (KB chunks attached to test cases) or dynamically (agent returns retrieved chunks).
 
 **Failure modes**:
 - Agent makes a claim not present in the context (classic hallucination)
@@ -19,8 +19,8 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - Agent omits key qualifiers from the source (e.g., source says "may cause X in some cases", agent says "causes X")
 
 **Checks to use**:
-- `Groundedness` — primary check. Use static `context=[...]` or `context_key=...` for dynamic.
-- `LLMJudge` — for nuanced groundedness criteria (e.g., "no claim should go beyond what the source explicitly states")
+- `Groundedness`: primary check. Use static `context=[...]` or `context_key=...` for dynamic.
+- `LLMJudge`: for nuanced groundedness criteria (e.g., "no claim should go beyond what the source explicitly states")
 
 **Test patterns**:
 - Ask a question whose answer is in a single chunk → expect grounded answer
@@ -42,8 +42,8 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - In multi-turn, agent answers a previous question that no longer applies
 
 **Checks to use**:
-- `AnswerRelevance` — primary. Defaults to `question_key="trace.last.inputs"`, `answer_key="trace.last.outputs"`. Pass `context="domain description"` to constrain the judge.
-- `LLMJudge` — for stricter or domain-specific relevance criteria
+- `AnswerRelevance`: primary. Defaults to `question_key="trace.last.inputs"`, `answer_key="trace.last.outputs"`. Pass `context="domain description"` to constrain the judge.
+- `LLMJudge`: for stricter or domain-specific relevance criteria
 
 **Test patterns**:
 - Ask a narrow specific question → expect a narrow specific answer
@@ -56,18 +56,18 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 **What it measures**: When the question cannot be answered from the KB, does the agent decline rather than hallucinate?
 
-**When it applies**: Always — every RAG system encounters questions outside its KB.
+**When it applies**: Always. Every RAG system encounters questions outside its KB.
 
 **Failure modes**:
 - Agent confidently fabricates an answer using world knowledge instead of declining
 - Agent says "I don't know" but then proceeds to answer anyway
-- Agent declines on questions it *should* be able to answer (over-refusal — also bad)
+- Agent declines on questions it *should* be able to answer (over-refusal, also bad)
 - Agent answers in-domain questions but with no grounding when its retrieval missed
 
 **Checks to use**:
 - `Conformity` with rule like: "When the answer is not in the agent's knowledge base, the agent must explicitly decline or say it does not know. Confident-but-unsupported answers fail."
-- `StringMatching(keyword="don't have", ...)` or similar — quick sanity check on refusal phrasing
-- `AnyOf(grounded, declines)` — pass if either grounded OR refusal happened
+- `StringMatching(keyword="don't have", ...)` or similar: quick sanity check on refusal phrasing
+- `AnyOf(grounded, declines)`: pass if either grounded OR refusal happened
 
 **Test patterns**:
 - Generate questions about entities/topics intentionally absent from the KB
@@ -79,7 +79,7 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 ## 4. Retrieval Quality
 
-**What it measures**: Whether the retriever returns relevant documents for a query. Independent of generation quality — a perfect generator can't fix bad retrieval.
+**What it measures**: Whether the retriever returns relevant documents for a query. Independent of generation quality; a perfect generator can't fix bad retrieval.
 
 **When it applies**: Only if the user exposes a separate retriever callable AND has relevance labels (which docs *should* be retrieved for which questions).
 
@@ -89,13 +89,13 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - Right doc retrieved but ranked too low to fit in the LLM's context window
 
 **Checks to use**:
-- `FnCheck` with a custom precision/recall@k function — operates on `trace.last.metadata` if the agent attaches retrieved IDs there, or on the retriever's direct output in a custom InteractionSpec.
+- `FnCheck` with a custom precision/recall@k function: operates on `trace.last.metadata` if the agent attaches retrieved IDs there, or on the retriever's direct output in a custom InteractionSpec.
 - `LesserThan` / `GreaterThan` for numerical thresholds (e.g., recall@5 ≥ 0.8)
 
 **Test patterns**:
 - For each test question, label the doc IDs that should be retrieved (often a single chunk)
 - Compute `recall@k` (was the relevant doc in the top k?) and `precision@k` (what fraction of top-k are relevant?)
-- Test paraphrased queries — does retrieval stay stable across rewordings?
+- Test paraphrased queries: does retrieval stay stable across rewordings?
 
 ---
 
@@ -112,9 +112,9 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - Agent makes claims with no citation when citations are required
 
 **Checks to use**:
-- `RegexMatching` — does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)?
-- `FnCheck` — extract cited IDs from the answer and check they exist in the KB
-- `LLMJudge` — compare each cited claim against its cited source
+- `RegexMatching`: does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)?
+- `FnCheck`: extract cited IDs from the answer and check they exist in the KB
+- `LLMJudge`: compare each cited claim against its cited source
 
 **Test patterns**:
 - Standard factual questions → expect citations
@@ -129,7 +129,7 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 **When it applies**: Always, especially when groundedness is hard to verify automatically.
 
-**Note on scope**: This is *quality-focused* hallucination probing — we test whether the agent invents facts in normal use. Adversarial fabrication attacks (jailbreaks, persona manipulation) belong in `scenario-generator`.
+**Note on scope**: This is *quality-focused* hallucination probing; we test whether the agent invents facts in normal use. Adversarial fabrication attacks (jailbreaks, persona manipulation) belong in `scenario-generator`.
 
 **Failure modes**:
 - Agent invents a citation, statistic, or quote that isn't in the source
@@ -164,7 +164,7 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 **Test patterns**:
 - Generate questions whose answer requires facts from 2+ chunks (see `synthetic-qa-generation.md`)
-- Verify the question is *genuinely* multi-hop — not just a chain of trivial single-hop steps
+- Verify the question is *genuinely* multi-hop, not just a chain of trivial single-hop steps
 
 ---
 
@@ -200,10 +200,10 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - Off-by-one or rounding errors
 
 **Checks to use**:
-- `Equals` — for exact match against a gold value
-- `RegexMatching` — for format validation (e.g., dollar amounts, dates)
-- `FnCheck` — for numerical tolerance (e.g., within 5%)
-- `LLMJudge` — when the gold answer can be expressed many ways
+- `Equals`: for exact match against a gold value
+- `RegexMatching`: for format validation (e.g., dollar amounts, dates)
+- `FnCheck`: for numerical tolerance (e.g., within 5%)
+- `LLMJudge`: when the gold answer can be expressed many ways
 
 **Test patterns**:
 - Curate questions with verifiable single-value answers

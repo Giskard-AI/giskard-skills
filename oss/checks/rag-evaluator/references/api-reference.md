@@ -49,8 +49,8 @@ result = await suite.run(target=my_rag_agent)
 ```
 
 **Required parameter names** (giskard injects by name):
-- `inputs` — the resolved input from `.interact(inputs=...)`
-- `trace` — optional, the full conversation history
+- `inputs`: the resolved input from `.interact(inputs=...)`
+- `trace`: optional, the full conversation history
 - Other parameter names will NOT be injected. Don't use `query`, `question`, etc.
 
 **Sync or async** both work: `def my_agent(inputs)` or `async def my_agent(inputs)`.
@@ -66,11 +66,11 @@ scenario = (
 )
 ```
 
-- `Scenario(name)` — name is required and shown in the report
-- `.interact(inputs=...)` — pass a string, callable, generator, or `UserSimulator`. Multiple `.interact()` calls = multi-turn.
-- `.check(check_instance)` — chain as many as needed; stops at first failure within the same step
+- `Scenario(name)`: name is required and shown in the report
+- `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator`. Multiple `.interact()` calls = multi-turn.
+- `.check(check_instance)`: chain as many as needed; stops at first failure within the same step
 
-NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs — they are silently ignored.
+NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs; they are silently ignored.
 
 ## Suite
 
@@ -85,10 +85,10 @@ print(f"Pass rate: {result.pass_rate * 100:.1f}%")
 ```
 
 `SuiteResult` has:
-- `pass_rate: float` — fraction of scenarios that passed
-- `results: list[ScenarioResult]` — per-scenario detail
-- `print_report()` — pretty-print to console
-- `model_dump_json()` — serialize to JSON for CI / persistence
+- `pass_rate: float`: fraction of scenarios that passed
+- `results: list[ScenarioResult]`: per-scenario detail
+- `print_report()`: pretty-print to console
+- `model_dump_json()`: serialize to JSON for CI / persistence
 
 ## Groundedness (LLM-based)
 
@@ -120,14 +120,14 @@ Groundedness(name="grounded")
 ```
 
 Fields:
-- `context: str | list[str] | None` — static context; if set, takes priority over `context_key`
-- `context_key: str` — JSONPath; default `"trace.last.metadata.context"`
-- `answer: str | None` — static answer; usually unused for live SUTs
-- `answer_key: str` — JSONPath; default `"trace.last.outputs"`
+- `context: str | list[str] | None`: static context; if set, takes priority over `context_key`
+- `context_key: str`: JSONPath; default `"trace.last.metadata.context"`
+- `answer: str | None`: static answer; usually unused for live SUTs
+- `answer_key: str`: JSONPath; default `"trace.last.outputs"`
 
 ## AnswerRelevance (LLM-based)
 
-Validates that the answer addresses the question. Multi-turn aware — only the *current* turn is scored, but prior turns are passed as history so the judge understands intent.
+Validates that the answer addresses the question. Multi-turn aware: only the *current* turn is scored, but prior turns are passed as history so the judge understands intent.
 
 ```python
 AnswerRelevance(
@@ -140,9 +140,9 @@ AnswerRelevance(
 ```
 
 Fields:
-- `question_key: str` — default `"trace.last.inputs"`
-- `answer_key: str` — default `"trace.last.outputs"`
-- `context: str | None` — domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
+- `question_key: str`: default `"trace.last.inputs"`
+- `answer_key: str`: default `"trace.last.outputs"`
+- `context: str | None`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
 
 ## Conformity (LLM-based)
 
@@ -156,7 +156,7 @@ Conformity(
 ```
 
 Fields:
-- `rule: str` — plain text. NOT a Jinja2 template. Receives the full Trace automatically.
+- `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically.
 
 ## LLMJudge (LLM-based)
 
@@ -178,7 +178,7 @@ Return passed=true if the agent's answer conveys "Paris is the capital of France
 ```
 
 Fields:
-- `prompt: str` — Jinja2 template; render with full trace context
+- `prompt: str`: Jinja2 template; render with full trace context
 
 ## Built-in (rule-based) Checks
 
@@ -194,7 +194,7 @@ RegexMatching(pattern=r"\[\d+\]", text_key="trace.last.outputs")  # checks for c
 Equals(expected_value="Paris", key="trace.last.outputs")
 LesserThan(threshold=500, key="trace.last.outputs.length")
 
-# Custom function — receives Trace, NOT the output string
+# Custom function: receives Trace, NOT the output string
 FnCheck(
     name="answer_non_empty",
     fn=lambda trace: len(trace.last.outputs) > 0,
@@ -239,7 +239,7 @@ Each `.interact()` is a turn. Checks placed after a turn evaluate that turn's in
 LLM-backed checks (`Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`) need a generator.
 
 ```python
-# Global default — recommended
+# Global default (recommended)
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
 # Per-check override
@@ -262,12 +262,12 @@ result.print_report()
 Path("rag_results.json").write_text(result.model_dump_json(indent=2))
 ```
 
-For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML export — useful for surfacing per-check pass/fail in CI dashboards.
+For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML export, useful for surfacing per-check pass/fail in CI dashboards.
 
 ## Common Pitfalls
 
-- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` is silently ignored — use `.check(...)` instead.
-- **Agent isn't called**: parameter is named `query` instead of `inputs` — only `inputs` and `trace` are injected.
+- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` is silently ignored; use `.check(...)` instead.
+- **Agent isn't called**: parameter is named `query` instead of `inputs`; only `inputs` and `trace` are injected.
 - **Groundedness always passes / always fails**: forgot `set_default_generator(...)`, or `context` and `context_key` both set with `context` empty.
 - **`AnswerRelevance` returns "relevant" for off-topic answers**: pass a `context="..."` describing the agent's domain so the judge has scope to ground its decision.
 - **`FnCheck` errors on `trace.last.outputs`**: `fn` receives a Trace object, not a string. Use `lambda trace: ... trace.last.outputs ...`, not `lambda outputs: ...`.

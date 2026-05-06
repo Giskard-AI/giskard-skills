@@ -5,10 +5,10 @@ When the user provides a KB but no curated test set, generate synthetic question
 ## Goals
 
 A good synthetic Q&A set:
-1. **Has known answers** — every question is anchored to specific KB chunks, so groundedness can be evaluated
-2. **Covers question diversity** — not just simple factuals; includes multi-hop, paraphrases, and out-of-scope
-3. **Reflects real user intent** — phrased the way a user actually would, not the way the source document phrases things
-4. **Is verifiable** — you can show the user the source chunks each question came from
+1. **Has known answers**: every question is anchored to specific KB chunks, so groundedness can be evaluated
+2. **Covers question diversity**: not just simple factuals; includes multi-hop, paraphrases, and out-of-scope
+3. **Reflects real user intent**: phrased the way a user actually would, not the way the source document phrases things
+4. **Is verifiable**: you can show the user the source chunks each question came from
 
 ## Output schema
 
@@ -38,7 +38,7 @@ Generate {{ n }} simple factual questions that:
 - Can be answered directly from a single chunk below
 - Have a clear, verifiable answer (a fact, name, date, number, definition)
 - Are phrased the way a real user would ask, not the way the document phrases things
-- Avoid yes/no questions — prefer "what", "when", "who", "how much"
+- Avoid yes/no questions. Prefer "what", "when", "who", "how much"
 
 For each question, return:
 - question: the user's question
@@ -54,11 +54,11 @@ Knowledge base chunks:
 ### 2. Multi-Hop
 
 ```jinja
-You are generating multi-hop evaluation questions — questions that require combining information from MULTIPLE chunks.
+You are generating multi-hop evaluation questions: questions that require combining information from MULTIPLE chunks.
 
 Generate {{ n }} questions that:
 - Genuinely require facts from 2 or more of the chunks below to answer
-- Are NOT trivially decomposable (avoid "What is X? And what is Y?" — that's two single-hops)
+- Are NOT trivially decomposable (avoid "What is X? And what is Y?", which is two single-hops)
 - Force the model to *connect* facts: comparisons, causes, sequences, dependencies
 - Avoid questions where one chunk is sufficient
 
@@ -108,7 +108,7 @@ Generate {{ n }} questions that are intentionally OUTSIDE the system's scope. Mi
 - {{ n // 3 }} questions ADJACENT to the system's domain but not covered (e.g., a related product, a sibling topic)
 - {{ n - 2 * (n // 3) }} questions that look in-domain but require post-cutoff or future information
 
-The system should DECLINE to answer these. There is no reference_answer — the gold behavior is refusal.
+The system should DECLINE to answer these. There is no reference_answer; the gold behavior is refusal.
 
 For each, return:
 - question
@@ -122,7 +122,7 @@ For each, return:
 
 **Show source chunks in the output**. Every generated question must come with the chunk IDs it was generated from. This lets the user sanity-check the grounding without re-reading the entire KB.
 
-**Don't paraphrase the source verbatim**. If the chunk says "The Eiffel Tower was completed in 1889", don't generate "When was the Eiffel Tower completed?" — that just tests the agent's ability to copy-paste. Better: "How old is the Eiffel Tower?" requires the agent to compute, ground, and respond appropriately.
+**Don't paraphrase the source verbatim**. If the chunk says "The Eiffel Tower was completed in 1889", don't generate "When was the Eiffel Tower completed?", which just tests the agent's ability to copy-paste. Better: "How old is the Eiffel Tower?" requires the agent to compute, ground, and respond appropriately.
 
 **Mix question types in roughly this ratio** for a balanced 20-question test set:
 - 8 simple factual
@@ -130,7 +130,7 @@ For each, return:
 - 4 paraphrases (of selected factuals)
 - 4 out-of-scope (mix of unrelated, adjacent, post-cutoff)
 
-**Avoid leakage**. Don't generate the question and the gold answer using the same model run that wrote the chunk — generate question and answer separately, with the chunk as context for both.
+**Avoid leakage**. Don't generate the question and the gold answer using the same model run that wrote the chunk. Generate question and answer separately, with the chunk as context for both.
 
 **Verify multi-hop genuinely needs hops**. Re-read each multi-hop question: can it be answered from a single chunk? If yes, it's not multi-hop. Discard.
 
