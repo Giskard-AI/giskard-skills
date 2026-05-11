@@ -1,0 +1,322 @@
+# Giskard Checks API Reference (RAG-focused)
+
+Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+
+## Imports
+
+```python
+# Core
+from giskard.checks import (
+    Scenario, Suite, Step,
+    Trace, Interact, Interaction, InteractionSpec,
+    Check, CheckResult, CheckStatus,
+    Metric,
+    UserSimulator,
+)
+
+# Built-in checks (rule-based, semantic)
+from giskard.checks import (
+    Equals, NotEquals, LesserThan, GreaterThan, LesserThanEquals, GreaterEquals,
+    FnCheck, from_fn,
+    StringMatching, RegexMatching,
+    SemanticSimilarity,
+    AllOf, AnyOf, Not,
+)
+
+# LLM-based checks
+from giskard.checks import (
+    LLMJudge, Conformity, Groundedness, AnswerRelevance,
+    BaseLLMCheck, LLMCheckResult,
+)
+
+# Generator config
+from giskard.checks import set_default_generator, get_default_generator
+from giskard.agents.generators import Generator
+```
+
+## Target (System Under Test)
+
+The `target` is the user's RAG agent callable. Pass it to `suite.run(target=...)` so `.interact()` only specifies inputs.
+
+```python
+def my_rag_agent(inputs: str) -> str:
+    # your RAG agent code here
+    return "answer"
+
+result = await suite.run(target=my_rag_agent)
+```
+
+**Required parameter names** (giskard injects by name):
+
+- `inputs`: the resolved input from `.interact(inputs=...)`
+- `trace`: optional, the full conversation history
+- Other parameter names will NOT be injected. Don't use `query`, `question`, etc.
+
+**Variants**:
+
+- **Async**: `async def my_agent(inputs):` — required when the underlying SDK exposes an async API.
+- **Structured output** (for dynamic groundedness): return `{"answer": "...", "context": [...]}`. Reference the fields via `trace.last.outputs.answer` and `trace.last.outputs.context` in checks.
+
+## Scenario
+
+```python
+scenario = (
+    Scenario("scenario_name")
+    .interact(inputs="What is the capital of France?")
+    .check(...)
+    .check(...)
+)
+```
+
+- `Scenario(name)`: name is required and shown in the report
+- `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator` (see below). Multiple `.interact()` calls = multi-turn.
+- `.check(check_instance)`: chain as many as needed; all checks in a step run on the same trace, so failures don't suppress later checks. A failing step does skip subsequent steps (steps are split by `.interact()` boundaries).
+
+NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs; they are silently ignored.
+
+## Suite
+
+```python
+suite = Suite(name="my_suite")
+suite.append(scenario)
+suite.append(another_scenario)
+
+result = await suite.run(target=my_agent)
+result.print_report()
+print(f"Pass rate: {result.pass_rate * 100:.1f}%")
+```
+
+`SuiteResult` has:
+
+- `pass_rate: float`: fraction of scenarios that passed
+- `results: list[ScenarioResult]`: per-scenario detail
+- `print_report()`: pretty-print to console
+- `model_dump_json()`: serialize to JSON for CI / persistence
+
+## Built-in LLM-based Checks
+
+### Groundedness
+
+Validates that the answer is supported by the provided context. **The most important RAG check.**
+
+```python
+Groundedness(
+    name="grounded",
+    context=["chunk 1 from KB", "chunk 2 from KB"],
+)
+```
+
+Fields:
+
+- `context: str | list[str] | None`: static context; if set, takes priority over `context_key`
+- `context_key: str`: JSONPath; default `"trace.last.metadata.context"`
+- `answer: str | None`: static answer; usually unused for live SUTs
+- `answer_key: str`: JSONPath; default `"trace.last.outputs"`
+
+**Variants**:
+
+- **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `answer_key="trace.last.outputs.answer"`.
+- **Dynamic context from interaction metadata**: omit `context=` and attach via `.interact(inputs=..., metadata={"context": [...]})` — matches the default `context_key`.
+
+### AnswerRelevance
+
+Validates that the answer addresses the question. Multi-turn aware: only the _current_ turn is scored, but prior turns are passed as history so the judge understands intent.
+
+```python
+AnswerRelevance(
+    name="relevant",
+    # Defaults are usually correct:
+    # question_key="trace.last.inputs",
+    # answer_key="trace.last.outputs",
+    context="This is a chatbot that answers questions about our internal HR policies.",
+)
+```
+
+Fields:
+
+- `question_key: str`: default `"trace.last.inputs"`
+- `answer_key: str`: default `"trace.last.outputs"`
+- `context: str | None`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
+
+### Conformity
+
+Validates the answer against a plain-text rule. Use for behavioral expectations: "must cite", "must decline if uncertain", "must respond in English".
+
+```python
+Conformity(
+    name="declines_when_unsupported",
+    rule="When the agent does not have information to answer, it must explicitly decline rather than guessing. Confident answers without supporting context fail this check.",
+)
+```
+
+Fields:
+
+- `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically.
+
+### LLMJudge
+
+Custom LLM judgment with a Jinja2 prompt. Use when no built-in check fits.
+
+```python
+LLMJudge(
+    name="answer_matches_gold",
+    prompt="""
+Compare the agent's answer to the gold answer. Pass if they convey the same factual information, even if worded differently.
+
+Question: {{ trace.last.inputs }}
+Agent answer: {{ trace.last.outputs }}
+Gold answer: The capital of France is Paris.
+
+Return passed=true if the agent's answer conveys "Paris is the capital of France"; passed=false otherwise.
+""",
+)
+```
+
+Fields:
+
+- `prompt: str`: Jinja2 template; render with full trace context
+
+## Built-in (rule-based) Checks
+
+```python
+# Keyword presence: passes if `keyword` is found in the resolved text.
+StringMatching(name="cites_paris", keyword="Paris", text_key="trace.last.outputs")
+
+# Keyword absence: wrap StringMatching in Not. There is NO `expected=False` parameter;
+# StringMatching silently ignores unknown kwargs and only checks for presence.
+Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", text_key="trace.last.outputs"))
+
+# Regex
+RegexMatching(name="has_citation", pattern=r"\[\d+\]", text_key="trace.last.outputs")  # citation markers
+
+# Equality / comparison
+Equals(expected_value="Paris", key="trace.last.outputs")
+LesserThan(threshold=500, key="trace.last.outputs.length")
+
+# Custom function: receives Trace, NOT the output string
+FnCheck(
+    name="answer_non_empty",
+    fn=lambda trace: len(trace.last.outputs) > 0,
+)
+
+# Composition
+AllOf(name="all_pass", checks=[check1, check2])
+AnyOf(name="grounded_or_refused", checks=[grounded_check, refusal_check])
+Not(name="not_empty", check=empty_check)
+```
+
+## SemanticSimilarity
+
+Embedding-based similarity to a reference string.
+
+```python
+SemanticSimilarity(
+    name="matches_gold",
+    reference_text="The capital of France is Paris.",
+    actual_answer_key="trace.last.outputs",  # adjust to ".answer" if SUT returns dict
+    threshold=0.5,                            # default is 0.95 which is very strict
+)
+```
+
+Fields:
+
+- `reference_text: str | None`: static gold; if set, takes priority over `reference_text_key`.
+- `reference_text_key: str`: JSONPath; default `"trace.last.metadata.reference_text"`. Use this if you attach the reference into the trace metadata at `.interact()` time.
+- `actual_answer_key: str`: JSONPath; default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
+- `threshold: float`: default `0.95` (very strict; calibrate downward to 0.5-0.7 for natural-language answers, where phrasing varies but meaning is preserved).
+- `embedding_model`: optional; the check uses a default embedder if you do not pass one.
+
+Common mistake: passing `reference=` or `text_key=` (incorrect names). The check will silently use defaults and look for the reference at `trace.last.metadata.reference_text`, failing with "No value found for reference text key".
+
+## UserSimulator
+
+LLM-powered persona that drives `.interact()` dynamically across multiple turns. Use it when a static `inputs="..."` string is too rigid — e.g., to test paraphrase robustness, multi-turn follow-up clarifications, or how the agent handles users who don't know exactly what to ask.
+
+```python
+from giskard.checks import UserSimulator
+
+curious_user = UserSimulator(
+    persona="""
+    You are an employee looking up the company's parental leave policy.
+    - Start with a vague question ("what's the leave policy?")
+    - Based on the agent's reply, ask a more specific follow-up
+    - If anything is unclear, ask for clarification once
+    - Stop once you have a concrete answer about parental leave specifically
+    """,
+    max_steps=4,
+)
+
+scenario = (
+    Scenario("parental_leave_followup")
+    .interact(inputs=curious_user)
+    .check(Groundedness(name="grounded", context=[...]))
+    .check(AnswerRelevance(name="relevant"))
+)
+```
+
+Fields:
+
+- `persona: str`: free-text description of the user. Detailed, goal-oriented personas work best. Include background, what the user is trying to accomplish, and a stop condition.
+- `max_steps: int`: max conversation turns (default `3`). Bump up for personas that need clarification rounds.
+
+**RAG-quality persona ideas**:
+
+- **Paraphraser**: asks the same factual question multiple ways to test consistency.
+- **Curious follow-up asker**: starts vague, drills in based on the agent's response.
+- **Out-of-scope wanderer**: asks one in-scope question, then drifts to topics the KB doesn't cover — tests refusal quality.
+- **Confused/imprecise user**: uses wrong terminology or partial information; tests the agent's ability to clarify before answering.
+
+Requires `set_default_generator(...)` (UserSimulator uses the LLM to generate each turn). For **adversarial personas** (manipulation, prompt-injection, jailbreaks) use the `scenario-generator` skill instead.
+
+## Multi-turn scenarios
+
+```python
+scenario = (
+    Scenario("multi_turn_rag")
+    .interact(inputs="What is the company's vacation policy?")
+    .check(Groundedness(name="grounded_1", context=[...]))
+    .interact(inputs="And how does it work for new hires?")  # follow-up
+    .check(Groundedness(name="grounded_2", context=[...]))
+    .check(AnswerRelevance(name="relevant_2"))
+)
+```
+
+Each `.interact()` is a turn. Checks placed after a turn evaluate that turn's interaction. `trace.interactions[i]` accesses turn `i`.
+
+## Configuring the LLM generator
+
+LLM-backed checks (`Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`) need a generator.
+
+```python
+set_default_generator(Generator(model="openai/gpt-4o-mini"))
+```
+
+For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent. The `model` string follows LiteLLM's `<provider>/<model>` convention; see the [LiteLLM providers reference](https://docs.litellm.ai/docs/providers) for currently supported models.
+
+**Variants**:
+
+- **Per-check override**: pass `generator=Generator(model="openai/gpt-4o")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
+
+## Persistence (CI-friendly)
+
+```python
+from pathlib import Path
+
+result = await suite.run(target=my_agent)
+result.print_report()
+Path("rag_results.json").write_text(result.model_dump_json(indent=2))
+```
+
+For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML export, useful for surfacing per-check pass/fail in CI dashboards.
+
+## Common Pitfalls
+
+- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` is silently ignored; use `.check(...)` instead.
+- **Agent isn't called**: parameter is named `query` instead of `inputs`; only `inputs` and `trace` are injected.
+- **Groundedness always passes / always fails**: forgot `set_default_generator(...)`, or `context` and `context_key` both set with `context` empty.
+- **`AnswerRelevance` returns "relevant" for off-topic answers**: pass a `context="..."` describing the agent's domain so the judge has scope to ground its decision.
+- **`FnCheck` errors on `trace.last.outputs`**: `fn` receives a Trace object, not a string. Use `lambda trace: ... trace.last.outputs ...`, not `lambda outputs: ...`.
+- **`SemanticSimilarity` errors with "No value found for reference text key"**: you passed `reference=` or `text_key=`. The actual fields are `reference_text=` and `actual_answer_key=`. Default threshold is 0.95 (very strict); calibrate to 0.5-0.7 for natural-language answers.
+- **`StringMatching(expected=False)` silently does nothing**: `expected=` is not a real field; pydantic accepts and ignores it. To check for absence, wrap in `Not(StringMatching(...))`.
+- **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`. Use `scen.final_trace.last.outputs`.
+- **Sync target deadlocks with "This event loop is already running"**: giskard's runner already holds an event loop. If the underlying SDK exposes a sync entry point that internally calls `asyncio.run()`, invoking it from inside the SUT will deadlock. Define the SUT as `async def agent(inputs):` and `await` the SDK's async API instead. Typical names for the async API are `arun`, `ainvoke`, `aquery`, or a `run` method that returns a coroutine.
