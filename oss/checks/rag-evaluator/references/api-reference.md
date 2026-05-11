@@ -42,11 +42,6 @@ def my_rag_agent(inputs: str) -> str:
     # your RAG agent code here
     return "answer"
 
-# Or returning structured output for dynamic groundedness:
-def my_rag_agent(inputs: str) -> dict:
-    # your RAG agent code here
-    return {"answer": "...", "context": ["chunk1", "chunk2"]}
-
 result = await suite.run(target=my_rag_agent)
 ```
 
@@ -56,7 +51,10 @@ result = await suite.run(target=my_rag_agent)
 - `trace`: optional, the full conversation history
 - Other parameter names will NOT be injected. Don't use `query`, `question`, etc.
 
-**Sync or async** both work: `def my_agent(inputs)` or `async def my_agent(inputs)`.
+**Variants**:
+
+- **Async**: `async def my_agent(inputs):` — required when the underlying SDK exposes an async API.
+- **Structured output** (for dynamic groundedness): return `{"answer": "...", "context": [...]}`. Reference the fields via `trace.last.outputs.answer` and `trace.last.outputs.context` in checks.
 
 ## Scenario
 
@@ -99,27 +97,9 @@ print(f"Pass rate: {result.pass_rate * 100:.1f}%")
 Validates that the answer is supported by the provided context. **The most important RAG check.**
 
 ```python
-# Static context (same for every run of this scenario)
 Groundedness(
     name="grounded",
     context=["chunk 1 from KB", "chunk 2 from KB"],
-    answer_key="trace.last.outputs",
-)
-
-# Dynamic context from the agent's output
-Groundedness(
-    name="grounded",
-    context_key="trace.last.outputs.context",
-    answer_key="trace.last.outputs.answer",
-)
-
-# Dynamic context from interaction metadata
-# Default! `context_key` defaults to "trace.last.metadata.context"
-Groundedness(name="grounded")
-# Then in your scenario:
-.interact(
-    inputs="What is X?",
-    metadata={"context": ["retrieved chunk"]},
 )
 ```
 
@@ -129,6 +109,11 @@ Fields:
 - `context_key: str`: JSONPath; default `"trace.last.metadata.context"`
 - `answer: str | None`: static answer; usually unused for live SUTs
 - `answer_key: str`: JSONPath; default `"trace.last.outputs"`
+
+**Variants**:
+
+- **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `answer_key="trace.last.outputs.answer"`.
+- **Dynamic context from interaction metadata**: omit `context=` and attach via `.interact(inputs=..., metadata={"context": [...]})` — matches the default `context_key`.
 
 ## AnswerRelevance (LLM-based)
 
@@ -260,18 +245,14 @@ Each `.interact()` is a turn. Checks placed after a turn evaluate that turn's in
 LLM-backed checks (`Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`) need a generator.
 
 ```python
-# Global default (recommended)
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
-
-# Per-check override
-Groundedness(
-    name="grounded",
-    generator=Generator(model="openai/gpt-4o"),  # use a stronger judge for one check
-    context=[...],
-)
 ```
 
 For best speed/cost: use a small fast model for evals (`gpt-4o-mini`, `gemini-2.0-flash`, `claude-haiku-4-5`). Judging is cheaper than generating, and the judge does not need to be the same model as the agent.
+
+**Variants**:
+
+- **Per-check override**: pass `generator=Generator(model="openai/gpt-4o")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
 
 ## Persistence (CI-friendly)
 
