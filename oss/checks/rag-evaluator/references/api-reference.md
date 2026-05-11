@@ -70,7 +70,7 @@ scenario = (
 
 - `Scenario(name)`: name is required and shown in the report
 - `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator` (see below). Multiple `.interact()` calls = multi-turn.
-- `.check(check_instance)`: chain as many as needed; stops at first failure within the same step
+- `.check(check_instance)`: chain as many as needed; all checks in a step run on the same trace, so failures don't suppress later checks. A failing step does skip subsequent steps (steps are split by `.interact()` boundaries).
 
 NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs; they are silently ignored.
 
