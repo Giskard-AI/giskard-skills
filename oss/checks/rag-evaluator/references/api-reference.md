@@ -291,7 +291,7 @@ LLM-backed checks (`Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`) 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
-For best speed/cost: use a small fast model for evals (`gpt-4o-mini`, `gemini-2.0-flash`, `claude-haiku-4-5`). Judging is cheaper than generating, and the judge does not need to be the same model as the agent.
+For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent. The `model` string follows LiteLLM's `<provider>/<model>` convention; see the [LiteLLM providers reference](https://docs.litellm.ai/docs/providers) for currently supported models.
 
 **Variants**:
 

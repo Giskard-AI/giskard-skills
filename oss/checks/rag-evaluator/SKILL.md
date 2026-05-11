@@ -238,7 +238,7 @@ When you respond, structure your output like this:
 
 - Quality matters more than quantity. 10 well-targeted scenarios beat 100 redundant ones.
 - For groundedness, the `context` you pass to the check is the ground truth. If the user's KB chunks are noisy, the eval is noisy. Tell the user that good context = good eval.
-- LLM judge calls are the slowest part. Use a fast judge model (`gpt-4o-mini`, `gemini-2.0-flash`, `claude-haiku-4-5`); judging is far cheaper than generating, and the judge doesn't need to be the same model as the agent.
+- LLM judge calls are the slowest part. Use your provider's cheapest fast-tier model as the judge — it's far cheaper than generation, and doesn't need to match the agent's model.
 - When generating synthetic Q&A, generate twice as many as you need and let the user trim. Synthetic data is cheap; a flaky test set is expensive.
 - For multi-hop and paraphrase question types, *show your work*: include the source chunks the question was generated from in a comment, so the user can sanity-check.
 
