@@ -134,6 +134,8 @@ The reference also shows three scoring strategies (Strict, Cosine, LLM-judged) t
 - Multi-claim answers → expect a citation per distinct claim
 - Mix in a question that requires combining sources → expect multiple citations
 
+For a worked end-to-end example combining all three layers, see [`examples.md` Example 6](./examples.md#example-6-citation-accuracy-regex--id-existence--llm-judge).
+
 ---
 
 ## 6. Hallucination Probes

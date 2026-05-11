@@ -470,6 +470,130 @@ if __name__ == "__main__":
 
 ---
 
+## Example 6: Citation Accuracy (regex + ID existence + LLM judge)
+
+**Setup**: User's agent is instructed to cite sources by `doc_id`. Add a three-layer citation eval — `RegexMatching` for marker presence, `FnCheck` for ID existence in the KB, `LLMJudge` for claim/citation alignment. The layers are ordered cheap → expensive; layer 3 catches the subtle case where the agent cites a real doc that doesn't actually support its claim.
+
+Three setup requirements the SUT must satisfy for the eval to work:
+
+1. **Stable doc IDs**: each KB chunk has a known `doc_id` the agent can emit verbatim.
+2. **System prompt**: instructs the model to cite every factual claim with `[doc_id]` in square brackets.
+3. **Dict return**: the agent returns `{"answer": str, "context": list[str]}` so the judge can see exactly what sources the agent retrieved.
+
+```python
+import asyncio
+import re
+from pathlib import Path
+
+from giskard.checks import (
+    Scenario, Suite,
+    RegexMatching, FnCheck, LLMJudge,
+    set_default_generator,
+)
+from giskard.agents.generators import Generator
+
+set_default_generator(Generator(model="openai/gpt-4o-mini"))
+
+# 1. KB with stable doc_ids -- the same IDs the agent must cite by.
+KB_DOCS = {
+    "hr-parental-leave-v3": "Primary caregivers get 16 weeks of paid parental leave; secondary caregivers 8 weeks; available after 6 months tenure.",
+    "hr-remote-work-v2":    "Remote work is permitted for all engineering roles, subject to manager approval and a maximum of 4 consecutive weeks abroad per year.",
+    "hr-perf-reviews-v1":   "Annual performance reviews occur in January. Reviews include self-assessment, peer feedback, and manager review.",
+    "hr-holidays-v2":       "The company observes 12 paid holidays per year plus 5 floating holidays for personal/religious observances.",
+}
+KB_IDS = set(KB_DOCS)
+
+# 2. Agent stub. The USER's SUT must:
+#    - retrieve chunks tagged with their doc_id
+#    - include a system prompt that instructs the model to cite via [doc_id]
+#    - return a dict so the checks can read both the answer AND the context
+async def your_rag_agent(inputs: str) -> dict:
+    """REPLACE: call your retriever + LLM here. System prompt MUST instruct
+    the model to cite each factual claim with [doc_id]. Example system prompt:
+
+        "Answer questions using ONLY the provided sources. Cite every factual
+         claim with the source doc_id in square brackets, e.g. [hr-remote-work-v2]."
+    """
+    raise NotImplementedError("Replace with your agent")
+    # Required return shape (the eval depends on this structure):
+    # return {
+    #     "answer": "Primary caregivers get 16 weeks of paid leave [hr-parental-leave-v3].",
+    #     "context": ["hr-parental-leave-v3: Primary caregivers get 16 weeks..."],
+    # }
+
+# 3. Layer 2 helper: extract cited IDs from the answer and verify each one is in the KB.
+CITATION_RE = re.compile(r"\[([a-z0-9-]+)\]")
+
+def citations_exist_in_kb(trace) -> bool:
+    cited = set(CITATION_RE.findall(trace.last.outputs["answer"]))
+    return bool(cited) and cited.issubset(KB_IDS)
+
+# 4. Layer 3 judge: Jinja2 template iterating the context the agent retrieved.
+JUDGE_PROMPT = """
+Examine the agent's answer below. For each citation marker `[doc-id]`, the claim it follows must be supported by the cited source.
+
+Question: {{ trace.last.inputs }}
+Agent answer: {{ trace.last.outputs.answer }}
+
+Available sources (id: text):
+{% for src in trace.last.outputs.context %}
+- {{ src }}
+{% endfor %}
+
+Return passed=true if every citation in the answer supports its accompanying claim. Return passed=false if any citation is unsupported (cites the wrong doc, or the cited doc doesn't say what's claimed).
+""".strip()
+
+QUESTIONS = [
+    "How many weeks of parental leave do primary caregivers get?",
+    "Can I work remotely from another country?",
+    "When are performance reviews held?",
+]
+
+scenarios = []
+for i, q in enumerate(QUESTIONS):
+    scenarios.append(
+        Scenario(f"citation_test_{i}")
+        .interact(inputs=q)
+        # Layer 1: regex sanity check that at least one [doc-id] marker exists
+        .check(RegexMatching(
+            name="has_citation_marker",
+            pattern=r"\[[a-z0-9-]+\]",
+            text_key="trace.last.outputs.answer",
+        ))
+        # Layer 2: cheap deterministic check that every cited ID is real
+        .check(FnCheck(
+            name="cited_ids_exist_in_kb",
+            fn=citations_exist_in_kb,
+        ))
+        # Layer 3: LLM judge for claim/citation alignment (the strict check)
+        .check(LLMJudge(
+            name="citations_support_claims",
+            prompt=JUDGE_PROMPT,
+        ))
+    )
+
+suite = Suite(name="rag_citation_accuracy")
+for s in scenarios:
+    suite.append(s)
+
+async def main():
+    result = await suite.run(target=your_rag_agent)
+    result.print_report()
+    Path("rag_results.json").write_text(result.model_dump_json(indent=2))
+    return result
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**Notes for adapting**:
+
+- If the agent cites with a different format (e.g., `(Smith 2020)`, `Source: doc-id`), update both `CITATION_RE` and the `RegexMatching` pattern, and update the system-prompt instruction accordingly.
+- If your SUT can't return `{"answer", "context"}`, pre-retrieve context per question and pass it inline to the judge prompt as a static block (drop the `{% for %}` loop).
+- A worked end-to-end validation of this approach (with a real LangChain RAG and an adversarial test suite) is in `notebooks/citation_accuracy_validation.ipynb`.
+
+---
+
 ## Notebook output (instead of script)
 
 If the user is in a Jupyter notebook, package the same code into cells. Recommended cell layout:
