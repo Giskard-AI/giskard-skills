@@ -1,6 +1,6 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the giskard-checks README. For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
 
 ## Imports
 
@@ -49,6 +49,7 @@ result = await suite.run(target=my_rag_agent)
 ```
 
 **Required parameter names** (giskard injects by name):
+
 - `inputs`: the resolved input from `.interact(inputs=...)`
 - `trace`: optional, the full conversation history
 - Other parameter names will NOT be injected. Don't use `query`, `question`, etc.
@@ -85,6 +86,7 @@ print(f"Pass rate: {result.pass_rate * 100:.1f}%")
 ```
 
 `SuiteResult` has:
+
 - `pass_rate: float`: fraction of scenarios that passed
 - `results: list[ScenarioResult]`: per-scenario detail
 - `print_report()`: pretty-print to console
@@ -120,6 +122,7 @@ Groundedness(name="grounded")
 ```
 
 Fields:
+
 - `context: str | list[str] | None`: static context; if set, takes priority over `context_key`
 - `context_key: str`: JSONPath; default `"trace.last.metadata.context"`
 - `answer: str | None`: static answer; usually unused for live SUTs
@@ -127,7 +130,7 @@ Fields:
 
 ## AnswerRelevance (LLM-based)
 
-Validates that the answer addresses the question. Multi-turn aware: only the *current* turn is scored, but prior turns are passed as history so the judge understands intent.
+Validates that the answer addresses the question. Multi-turn aware: only the _current_ turn is scored, but prior turns are passed as history so the judge understands intent.
 
 ```python
 AnswerRelevance(
@@ -140,6 +143,7 @@ AnswerRelevance(
 ```
 
 Fields:
+
 - `question_key: str`: default `"trace.last.inputs"`
 - `answer_key: str`: default `"trace.last.outputs"`
 - `context: str | None`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
@@ -156,6 +160,7 @@ Conformity(
 ```
 
 Fields:
+
 - `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically.
 
 ## LLMJudge (LLM-based)
@@ -178,6 +183,7 @@ Return passed=true if the agent's answer conveys "Paris is the capital of France
 ```
 
 Fields:
+
 - `prompt: str`: Jinja2 template; render with full trace context
 
 ## Built-in (rule-based) Checks
@@ -223,6 +229,7 @@ SemanticSimilarity(
 ```
 
 Fields:
+
 - `reference_text: str | None`: static gold; if set, takes priority over `reference_text_key`.
 - `reference_text_key: str`: JSONPath; default `"trace.last.metadata.reference_text"`. Use this if you attach the reference into the trace metadata at `.interact()` time.
 - `actual_answer_key: str`: JSONPath; default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
