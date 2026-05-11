@@ -230,11 +230,19 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 
 Default coverage if you have nothing to go on:
 
-| Always | If KB available | If retriever exposed | If gold answers |
-|---|---|---|---|
-| 2. Answer relevance | 1. Groundedness | 4. Retrieval quality | 9. Numerical/factual |
-| 3. Out-of-scope refusal | 6. Hallucination probes | 7. Multi-hop reasoning | (use `SemanticSimilarity` against gold) |
-| | 8. Paraphrase consistency | | |
-| | 5. Citation accuracy (if agent cites) | | |
+- **Always include**:
+  - 2. Answer relevance
+  - 3. Out-of-scope refusal
+- **If a KB is available, also add**:
+  - 1. Groundedness
+  - 6. Hallucination probes
+  - 8. Paraphrase consistency
+  - 5. Citation accuracy (only if the agent is supposed to cite)
+- **If a retriever is exposed separately, also add**:
+  - 4. Retrieval quality
+  - 7. Multi-hop reasoning
+- **If gold answers are available, also add**:
+  - 9. Numerical / factual precision
+  - `SemanticSimilarity` against the gold answer (not a dimension, a check)
 
 Don't try to cover all nine in one suite. Pick the 3–5 most relevant for the user's domain and build them well.
