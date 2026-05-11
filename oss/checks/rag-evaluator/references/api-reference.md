@@ -39,10 +39,12 @@ The `target` is the user's RAG agent callable. Pass it to `suite.run(target=...)
 
 ```python
 def my_rag_agent(inputs: str) -> str:
+    # your RAG agent code here
     return "answer"
 
 # Or returning structured output for dynamic groundedness:
 def my_rag_agent(inputs: str) -> dict:
+    # your RAG agent code here
     return {"answer": "...", "context": ["chunk1", "chunk2"]}
 
 result = await suite.run(target=my_rag_agent)
