@@ -180,7 +180,7 @@ if __name__ == "__main__":
 
 ## Example 3: Agent + Exposed Retriever (retrieval quality eval)
 
-**Setup**: User exposes both the end-to-end agent AND the retriever as separate functions. Adds retrieval quality eval using multiple metrics from `references/retrieval-metrics.md`.
+**Setup**: User exposes both the end-to-end agent AND the retriever as separate functions. Adds retrieval quality eval using multiple metrics from [`retrieval-metrics.md`](./retrieval-metrics.md).
 
 This example imports the metric formulas from the reference. Paste those formulas (`recall_at_k`, `precision_at_k`, `hit_at_k`, `mrr`, `ndcg_at_k`) inline if you want a single self-contained file.
 
@@ -340,7 +340,7 @@ if __name__ == "__main__":
 Notes:
 - `Groundedness` and `AnswerRelevance` use `answer_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer.
 - The `FnCheck` thresholds gate the suite (pass/fail). The `aggregate_retrieval_metrics` post-step gives you the raw means alongside, useful for tracking trends across releases without changing thresholds.
-- For sparse-label setups (you suspect unlabelled-but-relevant docs in the corpus), swap `recall_at_k` for `inf_ap` (also in `references/retrieval-metrics.md`).
+- For sparse-label setups (you suspect unlabelled-but-relevant docs in the corpus), swap `recall_at_k` for `inf_ap` (also in [`retrieval-metrics.md`](./retrieval-metrics.md)).
 
 ---
 
