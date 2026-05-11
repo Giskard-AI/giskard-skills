@@ -200,7 +200,7 @@ def your_rag_agent(inputs: str) -> dict:
     """Your RAG agent. Returns {"answer": str, "retrieved_ids": list[str]} so we can eval retrieval."""
     raise NotImplementedError("Replace with your agent")
 
-# ---- Metric formulas (see references/retrieval-metrics.md for the full catalogue) ----
+# ---- Metric formulas (copied inline so this example runs standalone; canonical implementations live in retrieval-metrics.md) ----
 
 def recall_at_k(relevant_ids: set[str], retrieved_ids: list[str], k: int) -> float:
     if not relevant_ids:
