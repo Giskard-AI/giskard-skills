@@ -11,6 +11,7 @@ from giskard.checks import (
     Trace, Interact, Interaction, InteractionSpec,
     Check, CheckResult, CheckStatus,
     Metric,
+    UserSimulator,
 )
 
 # Built-in checks (rule-based, semantic)
@@ -68,7 +69,7 @@ scenario = (
 ```
 
 - `Scenario(name)`: name is required and shown in the report
-- `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator`. Multiple `.interact()` calls = multi-turn.
+- `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator` (see below). Multiple `.interact()` calls = multi-turn.
 - `.check(check_instance)`: chain as many as needed; stops at first failure within the same step
 
 NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs; they are silently ignored.
@@ -226,6 +227,46 @@ Fields:
 - `embedding_model`: optional; the check uses a default embedder if you do not pass one.
 
 Common mistake: passing `reference=` or `text_key=` (incorrect names). The check will silently use defaults and look for the reference at `trace.last.metadata.reference_text`, failing with "No value found for reference text key".
+
+## UserSimulator
+
+LLM-powered persona that drives `.interact()` dynamically across multiple turns. Use it when a static `inputs="..."` string is too rigid — e.g., to test paraphrase robustness, multi-turn follow-up clarifications, or how the agent handles users who don't know exactly what to ask.
+
+```python
+from giskard.checks import UserSimulator
+
+curious_user = UserSimulator(
+    persona="""
+    You are an employee looking up the company's parental leave policy.
+    - Start with a vague question ("what's the leave policy?")
+    - Based on the agent's reply, ask a more specific follow-up
+    - If anything is unclear, ask for clarification once
+    - Stop once you have a concrete answer about parental leave specifically
+    """,
+    max_steps=4,
+)
+
+scenario = (
+    Scenario("parental_leave_followup")
+    .interact(inputs=curious_user)
+    .check(Groundedness(name="grounded", context=[...]))
+    .check(AnswerRelevance(name="relevant"))
+)
+```
+
+Fields:
+
+- `persona: str`: free-text description of the user. Detailed, goal-oriented personas work best. Include background, what the user is trying to accomplish, and a stop condition.
+- `max_steps: int`: max conversation turns (default `3`). Bump up for personas that need clarification rounds.
+
+**RAG-quality persona ideas**:
+
+- **Paraphraser**: asks the same factual question multiple ways to test consistency.
+- **Curious follow-up asker**: starts vague, drills in based on the agent's response.
+- **Out-of-scope wanderer**: asks one in-scope question, then drifts to topics the KB doesn't cover — tests refusal quality.
+- **Confused/imprecise user**: uses wrong terminology or partial information; tests the agent's ability to clarify before answering.
+
+Requires `set_default_generator(...)` (UserSimulator uses the LLM to generate each turn). For **adversarial personas** (manipulation, prompt-injection, jailbreaks) use the `scenario-generator` skill instead.
 
 ## Multi-turn scenarios
 
