@@ -92,7 +92,9 @@ print(f"Pass rate: {result.pass_rate * 100:.1f}%")
 - `print_report()`: pretty-print to console
 - `model_dump_json()`: serialize to JSON for CI / persistence
 
-## Groundedness (LLM-based)
+## Built-in LLM-based Checks
+
+### Groundedness
 
 Validates that the answer is supported by the provided context. **The most important RAG check.**
 
@@ -115,7 +117,7 @@ Fields:
 - **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `answer_key="trace.last.outputs.answer"`.
 - **Dynamic context from interaction metadata**: omit `context=` and attach via `.interact(inputs=..., metadata={"context": [...]})` — matches the default `context_key`.
 
-## AnswerRelevance (LLM-based)
+### AnswerRelevance
 
 Validates that the answer addresses the question. Multi-turn aware: only the _current_ turn is scored, but prior turns are passed as history so the judge understands intent.
 
@@ -135,7 +137,7 @@ Fields:
 - `answer_key: str`: default `"trace.last.outputs"`
 - `context: str | None`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
 
-## Conformity (LLM-based)
+### Conformity
 
 Validates the answer against a plain-text rule. Use for behavioral expectations: "must cite", "must decline if uncertain", "must respond in English".
 
@@ -150,7 +152,7 @@ Fields:
 
 - `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically.
 
-## LLMJudge (LLM-based)
+### LLMJudge
 
 Custom LLM judgment with a Jinja2 prompt. Use when no built-in check fits.
 
