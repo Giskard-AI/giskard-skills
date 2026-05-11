@@ -264,10 +264,7 @@ Example post-processing helper, called after `await suite.run(...)`:
 def aggregate_retrieval_metrics(suite_result, test_cases, k: int = 5):
     recalls, precisions, mrrs = [], [], []
     for tc, scen in zip(test_cases, suite_result.results):
-        try:
-            outputs = scen.final_trace.last.outputs  # ScenarioResult exposes .final_trace
-        except Exception:
-            continue
+        outputs = scen.final_trace.last.outputs  # ScenarioResult exposes .final_trace
         retrieved = outputs.get("retrieved_ids") or outputs.get("retrieved_paper_ids") or []
         relevant = set(tc["relevant_ids"])
         recalls.append(recall_at_k(relevant, retrieved, k))
