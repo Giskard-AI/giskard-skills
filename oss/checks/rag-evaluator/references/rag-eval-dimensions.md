@@ -1,6 +1,6 @@
 # RAG Evaluation Dimensions
 
-The catalog of quality dimensions to evaluate in a RAG system. Use this to decide which checks to apply and to design test scenarios. Each dimension lists what it measures, when it applies, common failure modes, and the checks to use.
+The catalog of quality dimensions to evaluate in a RAG system. Use this to decide which checks to apply and to design test scenarios. Each dimension lists what it measures, when it applies, common failure modes, and the checks to use. Check names below (e.g., `Groundedness`, `Conformity`, `FnCheck`) are documented in detail in [`api-reference.md`](./api-reference.md).
 
 A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup permits.
 

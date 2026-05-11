@@ -1,6 +1,6 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
 
 ## Imports
 

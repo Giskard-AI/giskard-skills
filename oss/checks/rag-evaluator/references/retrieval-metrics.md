@@ -1,6 +1,6 @@
 # Retrieval Metrics
 
-Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". The `giskard.checks` library does not bundle these as named checks; the recipe is to wrap each formula in a `FnCheck`.
+Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". The `giskard.checks` library does not bundle these as named checks; the recipe is to wrap each formula in a `FnCheck` (see the [`FnCheck` entry in `api-reference.md`](./api-reference.md#built-in-rule-based-checks) — note that `FnCheck` receives a `Trace`, not the output string).
 
 This file covers two questions:
 
