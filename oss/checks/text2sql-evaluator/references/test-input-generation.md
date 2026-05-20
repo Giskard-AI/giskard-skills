@@ -1,8 +1,10 @@
 # Test input generation (text-to-SQL)
 
+> Shared workflow (dimensions → tuples → questions, static vs personas): [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md)
+
 Structured ways to build **user questions** for analytics agents when the user has no golden set yet. Prefer **real production questions** when available.
 
-## Dimensions and tuples
+## SQL-specific dimensions
 
 Define axes that describe how **users** ask, not how SQL is written:
 
@@ -13,25 +15,29 @@ Define axes that describe how **users** ask, not how SQL is written:
 | `time_scope` | all-time, last month, point-in-time |
 | `persona_role` | executive, analyst, operator |
 
-1. Hand-write **~20 tuples** (one value per dimension).
-2. Optionally scale tuples with an LLM in a **separate** step from natural-language generation.
-3. Convert each tuple to a realistic **question** (no SQL from the user).
-4. Run questions through the **real agent**; collect traces for [`../../references/error-analysis.md`](../../references/error-analysis.md).
+Follow the core tuple workflow, then map each tuple to a **scenario direction** in [`scenario-directions.md`](./scenario-directions.md) before writing `Scenario` code.
 
-Map each tuple to a **scenario direction** in [`scenario-directions.md`](./scenario-directions.md) before writing `Scenario` code.
+## Anchoring on schema + metrics
+
+Text-to-SQL evals anchor on **DDL / schema summary** and **fixed seed data**, not KB chunks:
+
+- Tuple → question should be answerable (or honestly unanswerable) given the user's schema
+- When seed DB is fixed, derive gold `FnCheck`s from known counts/sums
+- Skip Tier 3 directions when schema lacks required tables — note gaps in the report
 
 ## Personas vs static prompts
 
-- **Static** `inputs="..."` — gold metrics, CI speed, minimal repro after error analysis.
-- **`UserSimulator` personas** — vagueness, follow-ups, phrasing variance — see [`simulate-users.md`](./simulate-users.md).
+See core doc for the default ~40/40/20 mix. SQL-specific guidance:
 
-Default mix (unless user opts out): ~40% static, ~40% quality personas, ~20% safety-oriented dialogue.
+- **Static** — gold metrics, `validate_sql` CI, minimal repro after error analysis
+- **Personas** — vague metrics, wrong-table first, exec/analyst handoffs — [`simulate-users.md`](./simulate-users.md)
 
 ## KB-style generation (RAG)
 
-If the user also has document grounding, see [`../../rag-evaluator/references/test-input-generation.md`](../../rag-evaluator/references/test-input-generation.md) for chunk-anchored Q&A patterns. Text-to-SQL evals usually anchor on **schema + metrics**, not chunks.
+If the user also has document grounding, see [`../../rag-evaluator/references/test-input-generation.md`](../../rag-evaluator/references/test-input-generation.md) for chunk-anchored Q&A patterns.
 
 ## See also
 
-- [`scenario-directions.md`](./scenario-directions.md) — which failure modes to target
-- [`eval-dimensions.md`](./eval-dimensions.md) — checks per dimension
+- [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md)
+- [`scenario-directions.md`](./scenario-directions.md)
+- [`eval-dimensions.md`](./eval-dimensions.md)

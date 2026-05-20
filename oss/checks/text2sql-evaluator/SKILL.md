@@ -38,9 +38,12 @@ Many production agents need this skill + `scenario-generator`.
 | Information gathering | [`../references/information-gathering.md`](../references/information-gathering.md) + text2sql addendum |
 | Generated code rules | [`../references/generated-code-rules.md`](../references/generated-code-rules.md) |
 | Error analysis, CI lifecycle | [`../references/error-analysis.md`](../references/error-analysis.md), [`../references/eval-lifecycle.md`](../references/eval-lifecycle.md) |
+| Trace sampling | [`../references/trace-sampling.md`](../references/trace-sampling.md) |
+| Official how-to index | [`../references/giskard-how-to.md`](../references/giskard-how-to.md) |
 | Multi-turn mechanics | [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md) |
 | Personas | [`references/simulate-users.md`](references/simulate-users.md) |
 | Check layers (core) | [`../references/checks-catalog-core.md`](../references/checks-catalog-core.md) |
+| Test inputs (core) | [`../references/test-input-generation-core.md`](../references/test-input-generation-core.md) |
 | Check layers (SQL) | [`references/checks-catalog.md`](references/checks-catalog.md) |
 | API (core) | [`../references/api-reference-core.md`](../references/api-reference-core.md) |
 | API (SQL subset) | [`references/api-reference.md`](references/api-reference.md) |
@@ -53,6 +56,8 @@ Many production agents need this skill + `scenario-generator`.
 ### Step 0: Gather context
 
 Read [`../references/information-gathering.md`](../references/information-gathering.md) (text2sql addendum). Require agent description, interface, and DB access model.
+
+Sample production traces when available — [`../references/trace-sampling.md`](../references/trace-sampling.md).
 
 ### Step 1: Error analysis
 

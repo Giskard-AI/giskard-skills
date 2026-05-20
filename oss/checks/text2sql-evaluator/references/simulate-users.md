@@ -2,6 +2,8 @@
 
 Source realistic **questions** with Giskard [`UserSimulator`](https://docs.giskard.ai/oss/checks/how-to/simulate-users). Pair with static scenarios for gold metrics, guardrails, and fast CI.
 
+**Design-time input planning** (dimensions, tuples, static gold cases): [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md).
+
 **Multi-turn mechanics** (chained users per step, trace-pattern checks): [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
 
 ## Assigning users per turn
