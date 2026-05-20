@@ -45,7 +45,7 @@ Out-of-scope: **decline** (`Conformity`), not retrieval.
 
 ### Step 5: Inputs
 
-Static + personas — [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md), [`references/simulate-users.md`](references/simulate-users.md), [`references/test-input-generation.md`](references/test-input-generation.md).
+Default **multi-turn** mix (~40% static / ~40% `UserSimulator` / ~20% dialogue safety) — shell Step 5b, [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md), [`references/simulate-users.md`](references/simulate-users.md). Static strings for gold/OOS only; personas for follow-ups and handoffs. [`references/test-input-generation.md`](references/test-input-generation.md).
 
 ### Step 7: Patterns
 

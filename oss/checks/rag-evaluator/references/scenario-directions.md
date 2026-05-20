@@ -21,11 +21,11 @@ See [`tool-usage.md`](./tool-usage.md). Adapt doc IDs and field names to the use
 
 0. Run [**error analysis**](../../references/error-analysis.md) on traces first — pick directions from observed failure modes.
 1. Confirm KB coverage (corpus sample, topic list, or user-provided chunks).
-2. Pick **Tier 1** directions for every deployment.
+2. Pick **Tier 1** directions for every deployment — include **at least 2–4 persona scenarios** (phased or chained `UserSimulator`) in the first suite, not static-only single turns.
 3. Add **Tier 2** when retrieval is exposed or labels exist.
 4. Add **Tier 3** for citations, multi-hop, or multi-turn stress.
 5. Prefer **deterministic checks first**, LLM judges second.
-6. **Personas** via [`simulate-users.md`](./simulate-users.md) — phased or chained users per turn; static strings for gold Q&A and OOS. See [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
+6. **Personas** via [`simulate-users.md`](./simulate-users.md) — phased or chained users per turn; static strings for gold Q&A and OOS only. See [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
 7. **Retrieval tool usage** on every in-domain factual question — [`tool-usage.md`](./tool-usage.md) before `Groundedness` alone.
 8. After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) — ~100% quality pass often means the suite is too easy.
 

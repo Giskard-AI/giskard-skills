@@ -36,7 +36,7 @@ FnCheck(
 )
 ```
 
-Use **trace-pattern** checks when turn order varies — see [`multi-turn-scenarios.md`](./multi-turn-scenarios.md).
+Use **trace-pattern** checks when turn order varies — see [`multi-turn-scenarios.md`](./multi-turn-scenarios.md). On `UserSimulator` scenarios, add `FnCheck(name="multi_turn", fn=lambda t: len(t.interactions) >= 3)` unless the scenario is intentionally single-turn static.
 
 ## Composition example
 
