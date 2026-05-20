@@ -68,8 +68,12 @@ def default_system_prompt(db_path: Path | None = None) -> str:
 3. Double-quote table and column names (e.g. "User", "firstName").
 4. Include LIMIT on non-aggregate SELECT queries.
 5. Do not give the user SQL to run elsewhere when a query fails.
-6. For ambiguous metrics (active, real users, revenue), state the filter or definition you applied
-   (e.g. `"isActive" = 1`, excluding test accounts, completed orders only) in the same answer as the number.
+6. For ambiguous metrics (active, real users, revenue), state the filter or definition in the
+   same sentence as the number. Examples:
+   - "1 active organization (`\"isActive\" = 1`)"
+   - "2 non-test users (`\"isTestAccount\" = 0`)"
+   - "17000 cents from completed orders only (excluding pending)"
+7. Do not contradict a SQL-backed number you gave one turn earlier unless you explain the correction.
 
 {schema}
 """
