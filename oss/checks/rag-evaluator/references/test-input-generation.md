@@ -1,33 +1,36 @@
-# Synthetic Q&A Generation from a Knowledge Base
+# Test input generation (RAG)
 
-When the user provides a KB but no curated test set, generate synthetic questions yourself. Bad synthetic Q&A = bad eval, so this matters. The patterns below come from the same lineage as `RAGET` (Giskard v2's RAG eval test set generator).
+> Shared workflow (dimensions → tuples → questions, static vs personas): [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md)
+
+When the user provides a KB but no curated test set, generate synthetic questions yourself. Bad synthetic Q&A = bad eval. Patterns below follow the same lineage as `RAGET` (Giskard v2's RAG eval test set generator).
 
 ## Goals
 
 A good synthetic Q&A set:
-1. **Has known answers**: every question is anchored to specific KB chunks, so groundedness can be evaluated
-2. **Covers question diversity**: not just simple factuals; includes multi-hop, paraphrases, and out-of-scope
-3. **Reflects real user intent**: phrased the way a user actually would, not the way the source document phrases things
-4. **Is verifiable**: you can show the user the source chunks each question came from
+
+1. **Has known answers** — every question anchored to specific KB chunks for groundedness evals
+2. **Covers diversity** — factual, multi-hop, paraphrase, out-of-scope
+3. **Reflects real user intent** — phrased as users ask, not as documents read
+4. **Is verifiable** — source chunk IDs per question
+
+Map tuples from the core workflow to RAG directions in [`scenario-directions.md`](./scenario-directions.md) (e.g. `in_scope=false` → out-of-scope tuple).
 
 ## Output schema
-
-Generate test cases in this shape so they plug directly into the canonical code structure:
 
 ```python
 @dataclass
 class TestCase:
     question: str
     question_type: Literal["factual", "multi_hop", "paraphrase", "out_of_scope"]
-    context: list[str]              # KB chunks the question is grounded in (empty for out_of_scope)
-    reference_answer: str | None    # optional, for SemanticSimilarity / LLMJudge against gold
-    source_chunk_ids: list[str]     # IDs/paths of chunks the question was generated from (for provenance)
-    in_scope: bool                  # True for factual/multi_hop/paraphrase, False for out_of_scope
+    context: list[str]              # KB chunks (empty for out_of_scope)
+    reference_answer: str | None
+    source_chunk_ids: list[str]
+    in_scope: bool
 ```
 
 ## Generation prompts
 
-Use these prompts as templates with `giskard.agents.Generator`. Each prompt is run with KB chunks as context (or, for out-of-scope, with the agent description).
+Use with `giskard.agents.Generator`. Run with KB chunks as context (out-of-scope: agent description + topic list).
 
 ### 1. Simple Factual
 
@@ -118,21 +121,11 @@ For each, return:
 
 ## Tips for high-quality generation
 
-**Generate 2× and trim**. Synthetic data is cheap. Generate twice as many questions as the user asked for, then have the user (or you) trim shallow / duplicate / poorly-grounded ones.
-
-**Show source chunks in the output**. Every generated question must come with the chunk IDs it was generated from. This lets the user sanity-check the grounding without re-reading the entire KB.
-
-**Don't paraphrase the source verbatim**. If the chunk says "The Eiffel Tower was completed in 1889", don't generate "When was the Eiffel Tower completed?", which just tests the agent's ability to copy-paste. Better: "How old is the Eiffel Tower?" requires the agent to compute, ground, and respond appropriately.
-
-**Mix question types in roughly this ratio** for a balanced 20-question test set:
-- 8 simple factual
-- 4 multi-hop
-- 4 paraphrases (of selected factuals)
-- 4 out-of-scope (mix of unrelated, adjacent, post-cutoff)
-
-**Avoid leakage**. Don't generate the question and the gold answer using the same model run that wrote the chunk. Generate question and answer separately, with the chunk as context for both.
-
-**Verify multi-hop genuinely needs hops**. Re-read each multi-hop question: can it be answered from a single chunk? If yes, it's not multi-hop. Discard.
+- **Generate 2× and trim** — discard shallow or poorly grounded questions
+- **Show source chunks** — every question needs chunk IDs for sanity checks
+- **Don't paraphrase the source verbatim** — prefer questions that require grounding + reasoning
+- **Mix types** (~20 questions): 8 factual, 4 multi-hop, 4 paraphrases, 4 out-of-scope
+- **Verify multi-hop** — discard if one chunk suffices
 
 ## Example: full generation flow
 
@@ -159,13 +152,12 @@ async def generate_test_set(kb_chunks: list[dict], agent_description: str):
     return factual + multi_hop + paraphrases + out_of_scope
 ```
 
-## When NOT to generate synthetically
+## Personas for the same coverage
 
-If the user has any of:
-- A curated golden test set
-- Real production logs with user questions (even unlabelled)
-- A list of known FAQs
+For phrasing variance and follow-ups on generated topics, attach [`simulate-users.md`](./simulate-users.md) archetypes — do not duplicate tuple planning here.
 
-Use those instead. Real user questions beat synthetic ones for realism. Synthetic Q&A is the fallback when nothing else is available.
+## See also
 
-If the user has *some* real questions but not enough, mix: real questions for relevance/refusal coverage, synthetic for groundedness anchoring (because synthetic questions come with known source chunks, which makes groundedness auto-anchorable).
+- [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md)
+- [`scenario-directions.md`](./scenario-directions.md)
+- [`eval-dimensions.md`](./eval-dimensions.md)

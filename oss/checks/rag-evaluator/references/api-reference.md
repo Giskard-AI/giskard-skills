@@ -1,6 +1,8 @@
-# Giskard Checks API Reference (RAG-focused)
+# Giskard Checks API reference (RAG)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+> Shared API surface: [`../../references/api-reference-core.md`](../../references/api-reference-core.md)
+
+RAG-specific notes below. For when to use each check, see [`checks-catalog.md`](./checks-catalog.md). Full docs: [Checks reference](https://docs.giskard.ai/oss/checks/reference/checks). Adversarial: `scenario-generator` skill.
 
 ## Imports
 
@@ -320,3 +322,8 @@ For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML ex
 - **`StringMatching(expected=False)` silently does nothing**: `expected=` is not a real field; pydantic accepts and ignores it. To check for absence, wrap in `Not(StringMatching(...))`.
 - **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`. Use `scen.final_trace.last.outputs`.
 - **Sync target deadlocks with "This event loop is already running"**: giskard's runner already holds an event loop. If the underlying SDK exposes a sync entry point that internally calls `asyncio.run()`, invoking it from inside the SUT will deadlock. Define the SUT as `async def agent(inputs):` and `await` the SDK's async API instead. Typical names for the async API are `arun`, `ainvoke`, `aquery`, or a `run` method that returns a coroutine.
+
+## See also
+
+- [`checks-catalog.md`](./checks-catalog.md) — decision table for built-in checks
+- [Official checks API](https://docs.giskard.ai/oss/checks/reference/checks)

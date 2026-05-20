@@ -2,6 +2,8 @@
 
 Complete, runnable examples for each common RAG eval setup. Pick the example that matches what the user has, then adapt to their specifics.
 
+**In-domain scenarios should assert retrieval tool usage** before `Groundedness` alone — see [`tool-usage.md`](./tool-usage.md). Check picker: [`checks-catalog.md`](./checks-catalog.md).
+
 All examples:
 - Use `from giskard.checks import ...`
 - Wrap scenarios in a `Suite`
@@ -115,7 +117,7 @@ def your_rag_agent(inputs: str) -> str:
 
 DOMAIN = "An assistant that answers questions about our SaaS product's features and pricing."
 
-# REPLACE: Synthetic test set generated from KB chunks. See references/synthetic-qa-generation.md.
+# REPLACE: Synthetic test set generated from KB chunks. See references/test-input-generation.md.
 TEST_CASES = [
     {
         "question": "How many users are included in the Pro plan?",
@@ -628,3 +630,48 @@ result  # rich pretty-print
 ```
 
 In notebooks, the cell's last expression is auto-displayed, so just put `result` at the end. Don't write to JSON unless the user asks; that's a script idiom.
+
+---
+
+## Phased persona (`offtopic_then_data`)
+
+One `UserSimulator` with phase instructions — see [`simulate-users.md`](./simulate-users.md), [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
+
+```python
+offtopic_then_data = UserSimulator(
+    persona="""
+    You are an employee using the HR knowledge base.
+    Phase 1: Brief social or off-topic opener (not about policy).
+    Phase 2: Ask a concrete in-domain HR question.
+    Do not mention retrieval. Stop when answered or declined.
+    """,
+    max_steps=5,
+)
+
+Scenario("offtopic_then_policy").interact(inputs=offtopic_then_data)
+```
+
+---
+
+## Chained users per turn (`employee_then_manager`)
+
+```python
+employee_sim = UserSimulator(
+    persona="You are an employee. Ask one question about parental leave. One message only.",
+    max_steps=1,
+)
+manager_sim = UserSimulator(
+    persona="You are the manager. Ask whether parental leave is paid. One message only.",
+    max_steps=1,
+)
+
+(
+    Scenario("employee_then_manager_leave")
+    .interact(inputs=employee_sim, metadata={"persona_id": "employee"})
+    .interact(inputs=manager_sim, metadata={"persona_id": "manager"})
+)
+```
+
+---
+
+Runnable reference implementation: `example-agent/` (optional). See `example-agent/COVERAGE.md` for demo KB doc IDs and direction → scenario map.

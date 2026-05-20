@@ -1,8 +1,33 @@
-# RAG Evaluation Dimensions
+# Evaluation dimensions (RAG)
 
 The catalog of quality dimensions to evaluate in a RAG system. Use this to decide which checks to apply and to design test scenarios. Each dimension lists what it measures, when it applies, common failure modes, and the checks to use. Check names below (e.g., `Groundedness`, `Conformity`, `FnCheck`) are documented in detail in [`api-reference.md`](./api-reference.md).
 
-A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup permits.
+A solid RAG eval covers at least **dimensions 0–3** (tool usage, groundedness, relevance, refusal). Add 4–9 as the user's setup permits.
+
+See [`tool-usage.md`](./tool-usage.md) for retrieval tool `FnCheck` patterns (required before answer-only judges). When labels exist, tune **retrieval (IR) before generation judges**. Check picker: [`checks-catalog.md`](./checks-catalog.md). Process: [`../../references/error-analysis.md`](../../references/error-analysis.md).
+
+---
+
+## 0. Retrieval / search tool usage (required baseline)
+
+**What it measures**: For in-domain factual questions, the agent **invoked retrieval** (or equivalent search tool) and exposed chunks/sources in the trace — not answers composed from memory alone.
+
+**When it applies**: Every in-domain scenario where the KB should be consulted. **Not** required for pure out-of-scope decline tests.
+
+**Failure modes**:
+- Confident answer with empty `sources` / `context` / `tool_calls`
+- `Groundedness` passes only because the test author attached static `context=[...]` while the agent never retrieved
+- Citations invented in prose without retrieval (do not use `Conformity("must cite")` as the only check)
+
+**Checks to use**:
+- `FnCheck` on non-empty `trace.last.outputs.sources`, `.context`, or `.tool_calls` — see [`tool-usage.md`](./tool-usage.md)
+- Multi-turn: assert retrieval on at least one factual interaction in `trace.interactions`
+
+**Test patterns**:
+- Policy / product question with known KB coverage → retrieval must run before judging answer
+- Paraphrased question → retrieval should still run (or same chunks via stable retriever)
+
+**Order**: tool usage → retrieval quality (if labels) → `Groundedness` → answer relevance.
 
 ---
 
@@ -178,7 +203,7 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - `LLMJudge` for the combination logic specifically
 
 **Test patterns**:
-- Generate questions whose answer requires facts from 2+ chunks (see [`synthetic-qa-generation.md`](./synthetic-qa-generation.md))
+- Generate questions whose answer requires facts from 2+ chunks (see [`test-input-generation.md`](./test-input-generation.md))
 - Verify the question is *genuinely* multi-hop, not just a chain of trivial single-hop steps
 
 ---
