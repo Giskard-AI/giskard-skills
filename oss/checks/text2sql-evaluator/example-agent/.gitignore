@@ -1,0 +1,4 @@
+.venv/
+sample_data/analytics.db
+eval/results.json
+.env
