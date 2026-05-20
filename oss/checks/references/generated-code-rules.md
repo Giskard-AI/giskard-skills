@@ -33,8 +33,13 @@ Subtle violations cause silent failures. Follow these rules in every skill that 
 
 ## Multi-turn scenarios
 
-- Assign different users per turn via chained `.interact(inputs=sim_a).interact(inputs=sim_b)` or phased simulators — see [`multi-turn-scenarios.md`](./multi-turn-scenarios.md).
+- **Multi-turn API**: chain `.interact().check().interact().check()` on one `Scenario` (shared trace) — [tutorial](https://docs.giskard.ai/oss/checks/tutorials/multi-turn), [`multi-turn-scenarios.md`](./multi-turn-scenarios.md). Add a check after **each** `.interact()`, not only at the end.
+- Default suite mix: ~40% static, ~40% phased/chained `UserSimulator`, ~20% safety dialogue. Do not emit static-only suites unless the user asked.
+- **Phased**: one `.interact(inputs=sim)` with `max_steps` 4–8 and phase instructions in `persona=`.
+- **Chained roles**: `.interact(inputs=sim_a).interact(inputs=sim_b)` with **`max_steps=1`** per simulator unless that role needs a mini-dialogue.
+- On persona scenarios, add a length floor, e.g. `FnCheck(name="multi_turn", fn=lambda t: len(t.interactions) >= 3)`.
 - Prefer **trace-pattern** `FnCheck`s when turn order varies; avoid fixed `trace.interactions[0]` for dynamic simulators.
+- **Safety / refusal** in dialogue: scan all `trace.interactions` — never only `trace.last` (agent may refuse early then run safe SQL later).
 - Never default to static `"Hello"` warm-up + simulator on turn 2.
 
 ## Output persistence
