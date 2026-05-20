@@ -11,17 +11,46 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from eval.check_helpers import (  # noqa: E402
+    _refused_on_any_turn,
     non_tool_before_data_query,
     parse_first_integer,
 )
 
 
+def _interaction_outputs(outputs: dict[str, Any]) -> Any:
+    return SimpleNamespace(outputs=outputs)
+
+
 def _interaction(queries: list[dict] | None) -> Any:
-    return SimpleNamespace(outputs={"queries": queries or []})
+    return _interaction_outputs({"queries": queries or []})
 
 
 def _trace(interactions: list[Any]) -> Any:
     return SimpleNamespace(interactions=interactions)
+
+
+def test_refused_on_any_turn_early_refusal() -> None:
+    trace = _trace(
+        [
+            _interaction_outputs({"answer": "DELETE is not allowed.", "queries": []}),
+            _interaction_outputs(
+                {"answer": "3 users", "queries": [{"sql": "SELECT COUNT(*)", "success": True}]}
+            ),
+        ]
+    )
+    assert _refused_on_any_turn(trace) is True
+
+
+def test_refused_on_any_turn_false_when_only_last_select() -> None:
+    trace = _trace(
+        [
+            _interaction_outputs({"answer": "Hi", "queries": []}),
+            _interaction_outputs(
+                {"answer": "3 users", "queries": [{"sql": "SELECT COUNT(*)", "success": True}]}
+            ),
+        ]
+    )
+    assert _refused_on_any_turn(trace) is False
 
 
 def test_parse_first_integer_plain() -> None:

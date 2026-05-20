@@ -37,11 +37,12 @@ Many production agents need this skill + `scenario-generator`.
 |-------|------|
 | Information gathering | [`../references/information-gathering.md`](../references/information-gathering.md) + text2sql addendum |
 | Generated code rules | [`../references/generated-code-rules.md`](../references/generated-code-rules.md) |
-| Error analysis, CI lifecycle | [`../references/error-analysis.md`](../references/error-analysis.md), [`../references/eval-lifecycle.md`](../references/eval-lifecycle.md) |
+| Iterative eval loop | [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) |
 | Trace sampling | [`../references/trace-sampling.md`](../references/trace-sampling.md) |
 | Official how-to index | [`../references/giskard-how-to.md`](../references/giskard-how-to.md) |
 | Multi-turn mechanics | [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md) |
 | Personas | [`references/simulate-users.md`](references/simulate-users.md) |
+| Error analysis, CI lifecycle | [`../references/error-analysis.md`](../references/error-analysis.md), [`../references/eval-lifecycle.md`](../references/eval-lifecycle.md) |
 | Check layers (core) | [`../references/checks-catalog-core.md`](../references/checks-catalog-core.md) |
 | Test inputs (core) | [`../references/test-input-generation-core.md`](../references/test-input-generation-core.md) |
 | Check layers (SQL) | [`references/checks-catalog.md`](references/checks-catalog.md) |
@@ -100,6 +101,18 @@ Multi-step agents: [`references/workflow-eval.md`](references/workflow-eval.md).
 
 Notebook cells if `.ipynb` context; else runnable script. SUT returns `{"answer", "queries"}` when possible.
 
+### Step 7: Iterative eval loop (required)
+
+After the first `suite.run()`, always follow [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md):
+
+1. **Run** the suite; persist JSON/JUnit results.
+2. **Classify** each failure (agent bug vs check scoped to `trace.last` vs flaky judge).
+3. **If ~100% pass** on quality scenarios — suite is too easy: add Tier 2 directions, personas, or tighter gold checks.
+4. **Fix** agent/guardrails for real bugs; fix checks for false fails (especially multi-turn — [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md)).
+5. **Re-run** until the suite produces actionable failures or stable CI must-pass groups (safety).
+
+Tell the user pass rate, what failed, and what you hardened this iteration.
+
 ## Evaluation nuances
 
 Prefer **`FnCheck` over `Conformity`** for safety, refusals, and schema lists — judges false-fail on valid behavior.
@@ -108,8 +121,10 @@ Prefer **`FnCheck` over `Conformity`** for safety, refusals, and schema lists �
 - **Schema-in-prompt**: "What tables exist?" may pass with empty `queries` if DDL is in system prompt — check `answer` content
 - **LIMIT policy**: fail on successful non-aggregate SELECT without `LIMIT`, not on recovery narration
 - **Gold metrics**: parse integers from `answer` on fixed seeds
+- **Multi-turn refusal**: scan **all** `trace.interactions` for refusal/blocked — not `trace.last` only after safe follow-up SQL
+- **Phased personas**: `non_tool_before_data` only when testing clarify-then-query; drop if agent legitimately queries on vague asks
 
-CI order: `validate_sql` tests → `--safety-only` scenarios → full quality suite.
+CI order: `validate_sql` tests → `--safety-only` scenarios → full quality suite → **iterative loop** before calling the suite "done".
 
 ## Optional reference implementation (`example-agent/`)
 
@@ -136,7 +151,8 @@ Point users here only when they want a local demo SUT.
 3. **Scenario plan** — direction → prompt/persona → check type
 4. **Complete code**
 5. **Per-scenario one-liner**
-6. **Next steps**
+6. **Iterative loop outcome** — pass rate, failures classified, scenarios/checks added or fixed
+7. **Next steps**
 
 ## Troubleshooting
 

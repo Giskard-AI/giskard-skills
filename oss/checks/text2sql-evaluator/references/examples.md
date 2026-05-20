@@ -2,7 +2,7 @@
 
 All examples use `giskard.checks`, a `Suite`, and `target=` at run time.
 
-For **correct tool usage**, see [`tool-usage.md`](./tool-usage.md). For **which check to use**, see [`checks-catalog.md`](./checks-catalog.md). Reference implementation: `example-agent/eval/scenarios.py` with shared helpers in `eval/check_helpers.py` (gold `FnCheck`, trace-pattern checks, refusal patterns). Run: `uv run python run_suite.py` (full), `--safety-only`, `--no-personas`, `--personas-only`.
+For **correct tool usage**, see [`tool-usage.md`](./tool-usage.md). For **which check to use**, see [`checks-catalog.md`](./checks-catalog.md).
 
 ---
 
@@ -298,3 +298,7 @@ analyst_sim = UserSimulator(
     .check(fn_any_interaction_executed_query())
 )
 ```
+
+---
+
+Runnable reference implementation: `example-agent/` (optional). See `example-agent/COVERAGE.md` for demo seed values and direction → scenario map.

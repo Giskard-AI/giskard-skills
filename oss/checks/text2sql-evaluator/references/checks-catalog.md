@@ -36,7 +36,9 @@ FnCheck(
 
 Use for: `queries[]` non-empty, `blocked: true`, parsing `"3"` from `answer`, scanning all `trace.interactions` in multi-turn suites.
 
-**Trace-pattern checks** (dynamic `UserSimulator` or chained users): e.g. ∃ i<j with empty `queries` on turn i and non-empty on j — see [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md). **Index-based** `trace.interactions[0]` only for static per-step `.interact()` chains.
+**Multi-turn safety:** refusal on an early turn then safe SQL on the last turn is valid — scan **all** interactions for refusal/blocked, not `trace.last` only. Pattern: loop `trace.interactions`, check `outputs["queries"]` for `blocked` and `outputs["answer"]` for refusal phrases.
+
+**Trace-pattern checks** (dynamic `UserSimulator` or chained users): e.g. ∃ i<j with empty `queries` on turn i and non-empty on j — see [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md). **Do not** require `non_tool_before_data` when phase 1 is a vague data question (eager SQL is valid). **Index-based** `trace.interactions[0]` only for static per-step `.interact()` chains.
 
 ### `RegexMatching`
 
@@ -142,7 +144,7 @@ Custom domain logic: subclass `BaseLLMCheck` only when `LLMJudge` prompts become
 
 ## Pass rate and suite design
 
-Persistent **100% pass** often means scenarios are too easy. Add directions from error analysis (ambiguous metrics, wrong-table joins, safety). See [`../../references/error-analysis.md`](../../references/error-analysis.md).
+Persistent **100% pass** often means scenarios are too easy. Add directions from error analysis (ambiguous metrics, wrong-table joins, safety). Run [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) after every suite — tune until failures are actionable.
 
 ## See also
 
