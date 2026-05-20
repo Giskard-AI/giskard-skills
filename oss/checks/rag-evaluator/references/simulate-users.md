@@ -8,6 +8,8 @@ Source realistic **questions** with Giskard [`UserSimulator`](https://docs.giska
 
 ## Assigning users per turn
 
+Each `.interact()` step can use a **different** `UserSimulator`, static string, or trace-aware callable — see [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md#different-personas-inputs-and-targets-per-step).
+
 Different users can drive **different `.interact()` steps** in one scenario:
 
 | Pattern | Example |
