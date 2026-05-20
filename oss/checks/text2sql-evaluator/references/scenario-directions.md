@@ -217,7 +217,7 @@ When the user's schema is richer than the example DB, **reuse Tier 2 directions*
 
 ## Test input dimensions (optional)
 
-When you need many varied questions, see [`test-input-generation.md`](./test-input-generation.md) (dimensions → tuples → questions).
+When you need many varied questions, see [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md) and [`test-input-generation.md`](./test-input-generation.md).
 
 ---
 
