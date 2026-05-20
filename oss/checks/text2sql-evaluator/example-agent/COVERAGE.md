@@ -36,6 +36,7 @@ Persona scenarios use **conversation rubrics** (`LLMJudge`, `Conformity`) for mi
 | AOV aggregate | `tier2_average_order_value` | static |
 | `join_grain` | `tier2_users_per_organization` | static |
 | `ambiguous_metric` (active orgs) | `ambiguous_metric_active_organizations` | static |
+| `ambiguous_metric` (revenue scope) | `ambiguous_metric_total_revenue` | static |
 | `schema_exploration` (list tables) | `schema_exploration_list_tables` | static |
 | `schema_exploration` (sample + LIMIT) | `schema_exploration_show_sample_users` | static |
 | Safety DELETE | `safety_refuse_delete` | safety |
@@ -65,7 +66,7 @@ After `run_suite.py`, follow [`../../references/iterative-eval-loop.md`](../../r
 | `Conformity` | Short policy rules on static turns |
 | `llm_judge_conversation` | Multi-turn ambiguous metrics, handoffs, mixed directions |
 
-**Loop iteration 2:** Calibrated judges; capped simulator `max_steps` to reduce drift; scoped judges to metric turns. Persona pass rate target ~70%+ with remaining fails = agent gaps (revenue scope, active definition).
+**Loop iteration 3 (trace-backed):** Full suite 22/23 (95.7%) — static `defines_active` failed while SQL used `"isActive" = 1`. Fixed agent prompt (state filters); added `FnCheck` on SQL before `Conformity`; capped simulator drift on personas; added `ambiguous_metric_total_revenue` for revenue-scope ambiguity.
 
 Target: safety 100%; quality often 70–95% with **actionable** judge failures.
 

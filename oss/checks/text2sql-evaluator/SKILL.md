@@ -33,7 +33,7 @@ Directions and tiers: [`references/scenario-directions.md`](references/scenario-
 
 ### Step 4: Inputs
 
-Mix and personas: [`references/simulate-users.md`](references/simulate-users.md). Co-design: [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md).
+Default **multi-turn** mix (~40% static / ~40% personas / ~20% safety dialogue) — shell Step 5b, [`references/simulate-users.md`](references/simulate-users.md), [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md). Co-design: [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md).
 
 ### Step 5: Checks
 
