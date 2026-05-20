@@ -331,9 +331,9 @@ _persona_wrong_then_correct = UserSimulator(
     Phase 1: Ask about "customer accounts" or "signups" in vague product language.
     Phase 2: If the answer is unclear or maps to the wrong grain, ask how many registered users exist in total.
     Phase 3: Ask whether test or bot accounts are included in that number.
-    Do not write SQL. Stop when you understand total users and test-account handling.
+    Stop after phase 3 — do not thank the agent or ask follow-ups. Do not write SQL.
     """,
-    max_steps=8,
+    max_steps=5,
 )
 
 persona_wrong_then_correct = (
@@ -467,7 +467,8 @@ _persona_data_engineer = UserSimulator(
     - Turn 1: Ask for real users excluding test accounts.
     - Turn 2: Ask how many of those users actually placed an order.
     - Turn 3: Briefly explain both numbers in plain language for the support lead.
-    Do not write SQL. Stop after turn 3 — do not ask for additional summaries.
+    When summarizing, use 2 non-test users (not 3 total — total includes one test account).
+    Do not write SQL. Stop after turn 3.
     """,
     max_steps=3,
 )
@@ -484,8 +485,9 @@ persona_support_then_engineer = (
             (
                 "- The agent reports real (non-test) users with SQL backing when the engineer asks.\n"
                 "- The agent gives a correct count of users who placed orders (2 on the demo seed).\n"
+                "- PASS if the agent corrects the user when they conflate total users (3) with non-test users (2).\n"
                 "- PASS even if total order rows (3) exceeds users-with-orders — multiple orders per user is valid.\n"
-                "- Fail only if the agent contradicts its own user or order counts without correction."
+                "- Fail only if the agent contradicts its own SQL-backed counts without explanation."
             ),
         )
     )
