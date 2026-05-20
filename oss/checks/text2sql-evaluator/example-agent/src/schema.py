@@ -68,6 +68,8 @@ def default_system_prompt(db_path: Path | None = None) -> str:
 3. Double-quote table and column names (e.g. "User", "firstName").
 4. Include LIMIT on non-aggregate SELECT queries.
 5. Do not give the user SQL to run elsewhere when a query fails.
+6. For ambiguous metrics (active, real users, revenue), state the filter or definition you applied
+   (e.g. `"isActive" = 1`, excluding test accounts, completed orders only) in the same answer as the number.
 
 {schema}
 """
