@@ -1,6 +1,6 @@
 # Correct SQL tool usage (text-to-SQL evals)
 
-**Every in-domain data question should verify the agent called the SQL / analytics tool** (e.g. `execute_query`, `run_sql`), not only that the natural-language answer sounds right. Models often hallucinate counts without querying.
+**Every in-domain data scenario should verify the agent actually used the SQL / analytics tool** (e.g. `execute_query`, `run_sql`), not only that the final answer looks good. Models often hallucinate counts without querying.
 
 ## What to check
 

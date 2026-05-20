@@ -1,10 +1,10 @@
 # Evaluation dimensions (text-to-SQL)
 
-Catalog of quality and safety dimensions for agents that answer questions via SQL tools. Each entry lists what it measures, failure modes, and recommended `giskard.checks`.
+The catalog of quality dimensions to evaluate in a text-to-SQL / analytics agent. Use this to decide which checks to apply and to design test scenarios. Each dimension lists what it measures, when it applies, common failure modes, and the checks to use. Check names below (e.g., `AnswerRelevance`, `Conformity`, `FnCheck`) are documented in detail in [`api-reference.md`](./api-reference.md).
 
-**Pair with** [`../../references/error-analysis.md`](../../references/error-analysis.md), [`scenario-directions.md`](./scenario-directions.md), [`test-input-generation.md`](./test-input-generation.md), [`tool-usage.md`](./tool-usage.md), [`sql-safety.md`](./sql-safety.md), [`simulate-users.md`](./simulate-users.md), [`checks-catalog.md`](./checks-catalog.md).
+A solid baseline covers **dimensions 1–3** (tool usage, answer quality, safety). Add 4–9 as the user's setup permits.
 
-A solid baseline covers **1–3**. Add **4–9** when schema, gold data, or traces exist.
+See [`tool-usage.md`](./tool-usage.md) for SQL tool `FnCheck` patterns (required before answer-only judges). When a fixed seed DB exists, tune **gold metrics before** vague judges. Check picker: [`checks-catalog.md`](./checks-catalog.md). Process: [`../../references/error-analysis.md`](../../references/error-analysis.md).
 
 ---
 

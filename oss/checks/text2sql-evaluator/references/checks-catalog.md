@@ -2,9 +2,9 @@
 
 > Shared layer stack: [`../../references/checks-catalog-core.md`](../../references/checks-catalog-core.md)
 
-Which [built-in Giskard checks](https://docs.giskard.ai/oss/checks/reference/checks) to use for database analytics agents. Prefer **deterministic** checks before LLM judges. Always pair data scenarios with [`tool-usage.md`](./tool-usage.md) (`FnCheck` on `queries[]`).
+Which [built-in Giskard checks](https://docs.giskard.ai/oss/checks/reference/checks) to use for database analytics agents. Prefer **deterministic** checks before LLM judges. Always pair in-domain scenarios with [`tool-usage.md`](./tool-usage.md) (`FnCheck` on `queries[]` before answer judges alone).
 
-**Always set `name=`** on every check so reports are readable.
+**Always set `name=`** on every check. Full API notes: [`api-reference.md`](./api-reference.md).
 
 ---
 

@@ -2,7 +2,7 @@
 
 > Shared API surface: [`../../references/api-reference-core.md`](../../references/api-reference-core.md)
 
-SQL / analytics subset below. Check selection: [`checks-catalog.md`](./checks-catalog.md). RAG-specific API notes: [`../../rag-evaluator/references/api-reference.md`](../../rag-evaluator/references/api-reference.md).
+Text-to-SQL-specific notes below. For when to use each check, see [`checks-catalog.md`](./checks-catalog.md). Full docs: [Checks reference](https://docs.giskard.ai/oss/checks/reference/checks). Adversarial: `scenario-generator` skill.
 
 ## Imports
 

@@ -1,6 +1,6 @@
 # Simulate users with personas (text-to-SQL)
 
-Source realistic **questions** with Giskard [`UserSimulator`](https://docs.giskard.ai/oss/checks/how-to/simulate-users). Pair with static scenarios for gold metrics, guardrails, and fast CI.
+Source realistic **questions** with Giskard [`UserSimulator`](https://docs.giskard.ai/oss/checks/how-to/simulate-users). Pair static scenarios with gold metrics, guardrail baselines, and fast CI.
 
 **Design-time input planning** (dimensions, tuples, static gold cases): [`../../references/test-input-generation-core.md`](../../references/test-input-generation-core.md).
 
@@ -10,7 +10,7 @@ Source realistic **questions** with Giskard [`UserSimulator`](https://docs.giska
 
 Each `.interact()` step can use a **different** `UserSimulator`, static string, or trace-aware callable — see [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md#different-personas-inputs-and-targets-per-step).
 
-You can use **different users on different turns** in one scenario:
+Different users can drive **different `.interact()` steps** in one scenario:
 
 | Pattern | Example |
 |---------|---------|
@@ -18,18 +18,14 @@ You can use **different users on different turns** in one scenario:
 | **Phased single simulator** | One `UserSimulator` with phase list in `persona=` — `max_steps` 4–8 |
 | **Trace-aware callable** | `.interact(inputs=lambda trace: ...)` |
 
-Do **not** use a static `"Hello"` on turn 1 only to warm up — encode chitchat as a simulator phase or a dedicated persona.
+Avoid static `"Hi"` warm-up turns; use a persona phase instead.
 
 ## When to ask the user
 
-If **who** uses the bot is unclear, ask once — then **propose** concrete personas (see [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md)):
-
 - "Who asks questions — BI analysts, executives, support?"
-- "Do evals need multi-party handoffs (exec then analyst) or one user changing their mind?"
-- "How do they push back on vague numbers — 'what does active mean?', 'excluding test users?'"
-- "Which 2–3 real failure modes should a long conversation reproduce?"
+- "Do threads involve handoffs (exec then analyst) or one user refining their ask?"
 
-If unknown, present **2–4 scenario proposals** for the user to pick from; do not invent brittle static checks instead.
+If unknown, infer 3–5 personas from the agent description.
 
 ## Setup
 

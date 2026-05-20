@@ -8,16 +8,18 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.0.0
+  version: 1.1.0
   category: ai-testing
   tags: [giskard, checks, sql, text-to-sql, text2sql, evaluation, analytics]
 ---
 
 # Giskard Text-to-SQL Evaluator
 
-Data analytics agents via SQL tools. **`giskard.checks` only.**
+Quality evals: wrong counts, unsafe SQL, empty tool trace, out-of-scope handling.
 
-`suite.run(target=...)`. Prefer `{"answer", "queries"}`. **`FnCheck` on `queries[]`** before answer judges — [`references/tool-usage.md`](references/tool-usage.md).
+`suite.run(target=...)`. Return shape: prefer `{"answer", "queries"}`.
+
+**In-domain:** `FnCheck` on `queries[]` before answer judges — [`references/tool-usage.md`](references/tool-usage.md).
 
 ## Required: shared evaluator shell
 
@@ -27,32 +29,28 @@ Read [`../references/evaluator-skill-shell.md`](../references/evaluator-skill-sh
 
 ### Step 3: Dimensions
 
-[`references/eval-dimensions.md`](references/eval-dimensions.md): tool usage, answer quality, safety (`validate_sql`), conformity.
+[`references/eval-dimensions.md`](references/eval-dimensions.md) + directions in [`references/scenario-directions.md`](references/scenario-directions.md).
 
-Directions and tiers: [`references/scenario-directions.md`](references/scenario-directions.md).
+| User has | Coverage |
+|----------|----------|
+| Agent only | Relevance, conformity, refusal |
+| Agent + schema in prompt | + metadata answers (empty `queries` may be OK) |
+| Agent + seed DB | + gold `FnCheck`, `validate_sql` guardrails |
+| Agent + labelled Q&A | Gold `SemanticSimilarity` / `Equals` |
 
-### Step 4: Inputs
+### Step 4: Tool usage
 
-Default **multi-turn** mix (~40% static / ~40% personas / ~20% safety dialogue) — shell Step 5b, [`references/simulate-users.md`](references/simulate-users.md), [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md). Co-design: [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md).
+In-domain: `FnCheck` on `queries[]` → SQL shape / [`references/sql-safety.md`](references/sql-safety.md) → `AnswerRelevance` / gold.
 
-### Step 5: Checks
+Out-of-scope: **decline** (`Conformity`), not required query.
 
-[`references/checks-catalog.md`](references/checks-catalog.md) — `FnCheck` / `validate_sql` for safety and gold; `LLMJudge` on full transcript for vague metrics.
+### Step 5: Inputs
 
-### Step 8: Iterative loop (with user)
+Default **multi-turn** mix (~40% static / ~40% `UserSimulator` / ~20% dialogue safety) — shell Step 5b, [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md), [`references/simulate-users.md`](references/simulate-users.md). Static strings for gold metrics and guardrails only; personas for follow-ups and handoffs. [`references/test-input-generation.md`](references/test-input-generation.md).
 
-[`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) — review **latest traces** and **scenario setup** with the user; propose nuance before coding. See shell Step 8.
+### Step 7: Patterns
 
-## Evaluation nuances
-
-[`references/sql-safety.md`](references/sql-safety.md) for **guardrail** / `validate_sql` patterns. Portable pitfalls:
-
-- DELETE blocked or refused; LIMIT on non-aggregate SELECT
-- Empty `queries[]` OK when schema is only in the prompt — judge `answer`
-- Gold counts: parse `answer` on fixed seeds
-- Multi-turn: scan all `trace.interactions`, not only `trace.last`
-
-CI: deterministic guardrail tests, then safety scenarios, then full suite — [`../references/eval-lifecycle.md`](../references/eval-lifecycle.md).
+Trace keys and gold `FnCheck` wiring: [`references/api-reference.md`](references/api-reference.md), [`references/examples.md`](references/examples.md). Safety: `validate_sql` + `FnCheck` on `queries[]`, not `Conformity` alone. **notebook** / `.ipynb`: [`../references/generated-code-rules.md`](../references/generated-code-rules.md).
 
 ## Domain references
 
@@ -77,7 +75,8 @@ Optional demo: `example-agent/` + `COVERAGE.md` (see shell).
 |-------|--------|
 | TypeScript agent | Adapter returning `answer` + `queries[]` |
 | No DB | Sanitized snapshot or `example-agent/` |
-| Flaky judges | Evaluation nuances; `FnCheck` |
-| Schema in prompt | Empty `queries` may be valid |
+| Schema in prompt | Empty `queries` may be valid — judge `answer` |
+| Flaky judges | `FnCheck` first; [`references/sql-safety.md`](references/sql-safety.md) |
+| Guardrails only | `validate_sql` unit tests — see `sql-safety.md` |
 
 [`evals/evals.json`](evals/evals.json)

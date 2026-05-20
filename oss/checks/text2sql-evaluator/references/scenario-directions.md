@@ -12,20 +12,19 @@ In-domain evals assume the agent returns structured output when possible:
 
 See [`tool-usage.md`](./tool-usage.md). Adapt table and column names to the user's schema.
 
-Production analytics agents fail in predictable ways. Good scenarios target those failure modes, not generic "ask a question" coverage.
-
 ## How to use this guide
 
-0. Run [**error analysis**](../../references/error-analysis.md) on traces first — pick directions from observed failure modes, not a generic checklist.
-1. Read the user's schema (DDL, ER diagram, or sanitized snapshot).
-2. Pick **Tier 1** directions that apply — always include safety + at least one gold metric if possible, and **at least 2–4 persona scenarios** (phased or chained `UserSimulator`) in the first suite, not static-only single turns.
-3. Add **Tier 2** directions that match available tables.
-4. Skip **Tier 3** unless the schema has events, sessions, workflows, or release metadata — tell the user why they're deferred.
-5. For each chosen direction, prefer **deterministic checks first**, LLM judges second.
-6. **Source user turns with personas** — co-design with the user ([`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md)); phased or chained `UserSimulator`; static strings for gold metrics and guardrails. See [`simulate-users.md`](./simulate-users.md).
-7. **Assert correct SQL tool usage** on every in-domain data question — [`tool-usage.md`](./tool-usage.md); `FnCheck` on `queries[]` before answer judges.
+0. Run [**error analysis**](../../references/error-analysis.md) on traces first — pick directions from observed failure modes.
+1. Confirm schema coverage (DDL sample, ER diagram, or sanitized snapshot).
+2. Pick **Tier 1** directions for every deployment — include **at least 2–4 persona scenarios** (phased or chained `UserSimulator`) in the first suite, not static-only single turns.
+3. Add **Tier 2** when tables support joins, aggregates, or time filters.
+4. Add **Tier 3** for events, sessions, workflows, or release metadata — skip and tell the user when schema lacks required tables.
+5. Prefer **deterministic checks first**, LLM judges second.
+6. **Personas** via [`simulate-users.md`](./simulate-users.md) — phased or chained users per turn; static strings for gold metrics and guardrails only. See [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
+7. **SQL tool usage** on every in-domain data question — [`tool-usage.md`](./tool-usage.md) before answer judges alone.
+8. After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) — ~100% quality pass often means the suite is too easy.
 
-### Optional persona (map only when the direction fits)
+### Optional persona (when direction fits)
 
 | Direction | Objective archetype | Shape / multi-user |
 |-----------|---------------------|-------------------|
@@ -36,7 +35,7 @@ Production analytics agents fail in predictable ways. Good scenarios target thos
 | Wrong table then correct count | — | `wrong_then_correct` |
 | Chitchat then metric | — | `offtopic_then_data` |
 
-When generating code, label each scenario with its direction slug (e.g. `Scenario("join_grain_users_per_org")`) so reports stay readable.
+Label each `Scenario("direction_slug")` so reports stay readable.
 
 ---
 
