@@ -53,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--personas-only",
         action="store_true",
-        help="Run only UserSimulator persona scenarios (5 scenarios).",
+        help="Run only UserSimulator persona scenarios (9 scenarios).",
     )
     parser.add_argument(
         "--no-personas",
