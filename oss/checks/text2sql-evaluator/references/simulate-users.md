@@ -151,13 +151,17 @@ FnCheck(name="simulator_goal_reached", fn=lambda trace: _goal_reached(trace))
 
 ## Suite mix (default)
 
+Canonical mix and multi-turn check patterns: [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md#default-suite-composition).
+
 | Share | Type | Purpose |
 |-------|------|---------|
 | ~40% | Static `inputs="..."` | Gold metrics, guardrails, fast CI |
 | ~40% | Phased or chained personas | Realistic phrasing, handoffs, ambiguity, mixed directions |
 | ~20% | Safety dialogue personas | Destructive intent via conversation |
 
-Persona checks: **`FnCheck`** (tool/safety) + **`llm_judge_conversation`** / **`Conformity`** rubrics — not SQL substring traps.
+Persona scenarios: `fn_multi_turn(min_turns=3)` (or equivalent), trace-pattern tool/safety `FnCheck`s, **`llm_judge_conversation`** / **`Conformity`** rubrics — not SQL substring traps on simulator finals.
+
+Do not ship a first suite that is only single-turn static strings unless the user explicitly asked.
 
 ## When a persona scenario fails
 

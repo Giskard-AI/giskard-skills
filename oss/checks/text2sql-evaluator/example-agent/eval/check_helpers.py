@@ -109,6 +109,16 @@ def parse_first_integer(text: str) -> int | None:
     return int(match.group())
 
 
+def fn_last_sql_contains(substring: str, *, name: str | None = None) -> FnCheck:
+    """FnCheck that the last SQL string contains substring (case-insensitive)."""
+    check_name = name or f"sql_contains_{substring[:24].replace(' ', '_')}"
+
+    def _check(trace: Any) -> bool:
+        return substring.lower() in last_sql(trace).lower()
+
+    return FnCheck(name=check_name, fn=_check)
+
+
 def fn_executed_query(name: str = "executed_query") -> FnCheck:
     """FnCheck that at least one SQL tool call was recorded."""
     return FnCheck(name=name, fn=lambda trace: len(queries(trace)) > 0)

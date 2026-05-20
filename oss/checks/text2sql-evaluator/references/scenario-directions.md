@@ -18,7 +18,7 @@ Production analytics agents fail in predictable ways. Good scenarios target thos
 
 0. Run [**error analysis**](../../references/error-analysis.md) on traces first — pick directions from observed failure modes, not a generic checklist.
 1. Read the user's schema (DDL, ER diagram, or sanitized snapshot).
-2. Pick **Tier 1** directions that apply — always include safety + at least one gold metric if possible.
+2. Pick **Tier 1** directions that apply — always include safety + at least one gold metric if possible, and **at least 2–4 persona scenarios** (phased or chained `UserSimulator`) in the first suite, not static-only single turns.
 3. Add **Tier 2** directions that match available tables.
 4. Skip **Tier 3** unless the schema has events, sessions, workflows, or release metadata — tell the user why they're deferred.
 5. For each chosen direction, prefer **deterministic checks first**, LLM judges second.
