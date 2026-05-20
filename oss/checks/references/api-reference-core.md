@@ -88,6 +88,8 @@ Scenario("multi_turn").interact(inputs=sim).check(...)
 
 - `max_steps=1` per simulator when chaining distinct roles across `.interact()` steps.
 - Higher `max_steps` for phased dialogue within one `.interact()`.
+- **Different persona per step**: `.interact(inputs=sim_a).interact(inputs=sim_b)` — each step can use a different `UserSimulator`, static string, or `lambda trace: ...` ([`multi-turn-scenarios.md`](./multi-turn-scenarios.md)).
+- **One `target` per scenario run** — all dynamic steps share `suite.run(target=...)`; compare agents with separate scenarios or runs, not per-`.interact()` targets.
 
 ## Check quick reference
 
