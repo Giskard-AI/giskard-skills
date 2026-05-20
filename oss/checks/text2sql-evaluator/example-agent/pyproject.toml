@@ -1,0 +1,16 @@
+[project]
+name = "giskard-data-analytics-example"
+version = "0.1.0"
+description = "Reference text-to-SQL agent for giskard text2sql-evaluator skill"
+requires-python = ">=3.12"
+dependencies = [
+    "giskard-checks>=1.0.2b3",
+    "openai>=1.40.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
