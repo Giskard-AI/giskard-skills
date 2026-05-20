@@ -164,7 +164,7 @@ For adversarial variants (prompt injection to exfiltrate schema, role-play to by
 
 **Suite structure**: put **safety scenarios in a must-pass CI group** separate from quality scenarios. Quality cases can flake on hard SQL — track pass rate over time; don't block CI on LLM-judge-only cases until stable.
 
-After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md): propose longer persona threads with the user — not superspecific static checks.
+After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) **with the user**: review latest traces, audit scenario setup, propose nuance — [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md).
 
 ---
 

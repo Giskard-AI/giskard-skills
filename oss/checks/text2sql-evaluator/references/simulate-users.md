@@ -163,21 +163,14 @@ Persona checks: **`FnCheck`** (tool/safety) + **`llm_judge_conversation`** / **`
 
 See [`../../references/error-analysis.md`](../../references/error-analysis.md): first upstream failure, single-turn repro, N−1 prefix replay.
 
-Use [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) to decide:
+Run the loop **with the user** — [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) + [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md):
 
-- **Agent bug** — fix product; keep scenario
-- **Check used `trace.last` on multi-turn** — switch to full-trace patterns ([`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md))
-- **Always passes** — extend persona (more turns, mixed directions) or add chained handoff; use conversation `LLMJudge` — not superspecific `FnCheck` on SQL text
+1. Open **latest** traces from `eval/results.json` (turn #, user text, agent answer, `queries[]`)
+2. Audit **scenario setup** — persona phases, `max_steps`, rubric bullets in `eval/scenarios.py`
+3. Classify: agent bug | simulator drift | judge miscalibration | suite too easy
+4. **Propose** trace-backed changes; **ask** before editing scenarios or agent
 
-### Iterative hardening (quality suites)
-
-When re-running the loop after ~100% pass — see [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md):
-
-1. **Ask + propose** before coding new scenarios
-2. **Remove** brittle checks (SQL keyword must-match, `"2" in answer`) unless safety-critical
-3. **Add** phased personas covering 2+ direction slugs in one thread (e.g. revenue + pending + test users)
-4. **Use** full-transcript `LLMJudge` rubrics with explicit pass bullets — calibrate per [`judge-calibration.md`](../../references/judge-calibration.md)
-5. **Keep** ~40% static crisp gold / guardrails for fast CI; shift new difficulty into personas
+Do not harden with SQL substring checks or unbounded simulator turns without user confirmation.
 
 ## See also
 
