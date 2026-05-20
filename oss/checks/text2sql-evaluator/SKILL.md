@@ -38,6 +38,7 @@ Many production agents need this skill + `scenario-generator`.
 | Information gathering | [`../references/information-gathering.md`](../references/information-gathering.md) + text2sql addendum |
 | Generated code rules | [`../references/generated-code-rules.md`](../references/generated-code-rules.md) |
 | Iterative eval loop | [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) |
+| Scenario co-design (ask + propose) | [`../references/scenario-co-design.md`](../references/scenario-co-design.md) |
 | Trace sampling | [`../references/trace-sampling.md`](../references/trace-sampling.md) |
 | Official how-to index | [`../references/giskard-how-to.md`](../references/giskard-how-to.md) |
 | Multi-turn mechanics | [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md) |
@@ -54,9 +55,15 @@ Many production agents need this skill + `scenario-generator`.
 
 ## Workflow
 
-### Step 0: Gather context
+### Step 0: Gather context and co-design
 
 Read [`../references/information-gathering.md`](../references/information-gathering.md) (text2sql addendum). Require agent description, interface, and DB access model.
+
+**Before writing personas**, follow [`../references/scenario-co-design.md`](../references/scenario-co-design.md):
+
+1. Ask about **who** uses the bot, **how** they phrase vague metrics, and **typical follow-ups**
+2. Present **2–4 scenario proposals** (conversation sketch, directions per thread, check mix)
+3. Wait for user input on which proposals to implement — unless they asked you to proceed with documented assumptions
 
 Sample production traces when available — [`../references/trace-sampling.md`](../references/trace-sampling.md).
 
@@ -81,21 +88,30 @@ Minimum coverage ([`references/eval-dimensions.md`](references/eval-dimensions.m
 
 Directions: [`references/scenario-directions.md`](references/scenario-directions.md) — Tier 1 always; Tier 2 when schema supports; Tier 3 only with events/sessions tables.
 
-### Step 4: Source inputs
+### Step 4: Source inputs (realistic mix)
 
-~40% static gold/guardrails, ~40% phased/chained personas, ~20% safety dialogue — [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md), [`references/simulate-users.md`](references/simulate-users.md), [`references/test-input-generation.md`](references/test-input-generation.md).
+Target mix — [`references/simulate-users.md`](references/simulate-users.md), [`../references/scenario-co-design.md`](../references/scenario-co-design.md):
+
+| Share | Type | Purpose |
+|-------|------|---------|
+| ~40% | Static single-turn | Crisp gold metrics, schema, fast CI |
+| ~40% | Phased / chained personas | Longer dialogue, mixed directions, handoffs |
+| ~20% | Safety dialogue personas | Destructive intent in conversation |
+
+Persona scenarios combine **`FnCheck`** (tool/safety) + **`LLMJudge` full-transcript rubrics** + **`Conformity`** where a one-line rule fits. Do **not** harden realism with SQL substring traps or `"2" in answer` JOIN checks.
 
 ### Step 5: Pick checks (cheap → expensive)
 
-See [`references/checks-catalog.md`](references/checks-catalog.md), [`references/sql-safety.md`](references/sql-safety.md), [`../references/generated-code-rules.md`](../references/generated-code-rules.md).
+See [`references/checks-catalog.md`](references/checks-catalog.md), [`../references/scenario-co-design.md`](../references/scenario-co-design.md).
 
-1. `validate_sql` unit tests (no API key)
-2. `FnCheck` on `queries[]` and `answer` text
-3. Gold parses from fixed seed DB
-4. `SemanticSimilarity` for paraphrase
-5. LLM judges sparingly — not for safety or exact counts
+| Situation | Prefer |
+|-----------|--------|
+| Safety, tool ran, single-turn gold | `FnCheck`, `validate_sql` unit tests |
+| Ambiguous metric, multi-turn handoff | `LLMJudge` on **full transcript** with explicit pass bullets |
+| Short static policy | `Conformity` |
+| Paraphrase wording | `SemanticSimilarity` (calibrated) |
 
-Multi-step agents: [`references/workflow-eval.md`](references/workflow-eval.md).
+LLM judges **after** deterministic checks — not for DELETE blocked or exact counts on fixed seeds.
 
 ### Step 6: Output code
 
@@ -103,15 +119,16 @@ Notebook cells if `.ipynb` context; else runnable script. SUT returns `{"answer"
 
 ### Step 7: Iterative eval loop (required)
 
-After the first `suite.run()`, always follow [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md):
+After the first `suite.run()`, follow [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) **and** [`../references/scenario-co-design.md`](../references/scenario-co-design.md):
 
 1. **Run** the suite; persist JSON/JUnit results.
-2. **Classify** each failure (agent bug vs check scoped to `trace.last` vs flaky judge).
-3. **If ~100% pass** on quality scenarios — suite is too easy: add **longer personas**, mixed directions per thread, and `LLMJudge`/`Conformity` rubrics — not brittle SQL substring checks.
-4. **Fix** agent/guardrails for real bugs; fix checks for false fails (especially multi-turn — [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md)).
-5. **Re-run** until the suite produces actionable failures or stable CI must-pass groups (safety).
+2. **Classify** each failure (agent bug vs check scope vs judge miscalibration).
+3. **Report** pass rate and failed scenario names with judge reasons.
+4. **Propose** 1–2 persona extensions or rubric tweaks — longer threads, mixed directions, role handoffs — **ask the user** which to implement.
+5. **Harden** only after user confirms (or documented assumptions): extend `max_steps`, add phases, calibrate judge bullets — not brittle static gold.
+6. **Re-run** until quality is informative (~70–95% pass with actionable failures); safety stays 100%.
 
-Tell the user pass rate, what failed, and what you hardened this iteration.
+Never skip the proposal step when adding new persona scenarios.
 
 ## Evaluation nuances
 
@@ -146,13 +163,15 @@ Point users here only when they want a local demo SUT.
 
 ## Output format
 
-1. **Brief diagnosis** — Tier 1/2/3 covered and skipped
-2. **Personas** — list or "static-only"
-3. **Scenario plan** — direction → prompt/persona → check type
-4. **Complete code**
-5. **Per-scenario one-liner**
-6. **Iterative loop outcome** — pass rate, failures classified, scenarios/checks added or fixed
-7. **Next steps**
+1. **Questions for you** — gaps in personas, metric definitions, roles (if any remain)
+2. **Scenario proposals** — 2–4 sketches per [`../references/scenario-co-design.md`](../references/scenario-co-design.md) before new persona code
+3. **Brief diagnosis** — Tier 1/2/3 covered and skipped
+4. **Personas** — archetypes, turn counts, directions per thread
+5. **Scenario plan** — direction → persona/check mix (`FnCheck` vs `LLMJudge` vs `Conformity`)
+6. **Complete code**
+7. **Per-scenario one-liner**
+8. **Iterative loop outcome** — pass rate, failures classified, what you propose next
+9. **Next steps** — explicit ask: which proposals to implement
 
 ## Troubleshooting
 

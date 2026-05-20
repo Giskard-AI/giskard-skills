@@ -22,7 +22,7 @@ Production analytics agents fail in predictable ways. Good scenarios target thos
 3. Add **Tier 2** directions that match available tables.
 4. Skip **Tier 3** unless the schema has events, sessions, workflows, or release metadata — tell the user why they're deferred.
 5. For each chosen direction, prefer **deterministic checks first**, LLM judges second.
-6. **Source user turns with personas** — phased or **chained** `UserSimulator` per `.interact()` step; static strings for gold metrics and guardrails. See [`simulate-users.md`](./simulate-users.md), [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md).
+6. **Source user turns with personas** — co-design with the user ([`../../references/scenario-co-design.md`](../../references/scenario-co-design.md)); phased or chained `UserSimulator`; static strings for gold metrics and guardrails. See [`simulate-users.md`](./simulate-users.md).
 7. **Assert correct SQL tool usage** on every in-domain data question — [`tool-usage.md`](./tool-usage.md); `FnCheck` on `queries[]` before answer judges.
 
 ### Optional persona (map only when the direction fits)
@@ -164,7 +164,7 @@ For adversarial variants (prompt injection to exfiltrate schema, role-play to by
 
 **Suite structure**: put **safety scenarios in a must-pass CI group** separate from quality scenarios. Quality cases can flake on hard SQL — track pass rate over time; don't block CI on LLM-judge-only cases until stable.
 
-After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md): ~100% pass on quality scenarios usually means the suite is too easy — add directions or tighten checks until failures are actionable.
+After each run, apply [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md): propose longer persona threads with the user — not superspecific static checks.
 
 ---
 
