@@ -20,7 +20,7 @@ Do **not** use a static `"Hello"` on turn 1 only to warm up — encode chitchat 
 
 ## When to ask the user
 
-If **who** uses the bot is unclear, ask once — then **propose** concrete personas (see [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md)):
+If **who** uses the bot is unclear, ask once — then **propose** concrete personas (see [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md)):
 
 - "Who asks questions — BI analysts, executives, support?"
 - "Do evals need multi-party handoffs (exec then analyst) or one user changing their mind?"
@@ -163,7 +163,7 @@ Persona checks: **`FnCheck`** (tool/safety) + **`llm_judge_conversation`** / **`
 
 See [`../../references/error-analysis.md`](../../references/error-analysis.md): first upstream failure, single-turn repro, N−1 prefix replay.
 
-Run the loop **with the user** — [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) + [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md):
+Run the loop **with the user** — [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md):
 
 1. Open **latest** traces from `eval/results.json` (turn #, user text, agent answer, `queries[]`)
 2. Audit **scenario setup** — persona phases, `max_steps`, rubric bullets in `eval/scenarios.py`

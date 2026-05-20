@@ -21,7 +21,7 @@ Data analytics agents via SQL tools. **`giskard.checks` only.**
 
 ## Required: shared evaluator shell
 
-Read [`../references/evaluator-skill-shell.md`](../references/evaluator-skill-shell.md) first (workflow, [`error-analysis.md`](../references/error-analysis.md), [`generated-code-rules.md`](../references/generated-code-rules.md), [`giskard-how-to.md`](../references/giskard-how-to.md), [`iterative-eval-loop.md`](../references/iterative-eval-loop.md), [`scenario-co-design.md`](../references/scenario-co-design.md), install via `uv pip install`).
+Read [`../references/evaluator-skill-shell.md`](../references/evaluator-skill-shell.md) first (workflow, [`error-analysis.md`](../references/error-analysis.md), [`generated-code-rules.md`](../references/generated-code-rules.md), [`giskard-how-to.md`](../references/giskard-how-to.md), [`iterative-eval-loop.md`](../references/iterative-eval-loop.md), install via `uv pip install`).
 
 ## Domain workflow
 
@@ -33,7 +33,7 @@ Directions and tiers: [`references/scenario-directions.md`](references/scenario-
 
 ### Step 4: Inputs
 
-Mix and personas: [`references/simulate-users.md`](references/simulate-users.md). Co-design: [`../references/scenario-co-design.md`](../references/scenario-co-design.md).
+Mix and personas: [`references/simulate-users.md`](references/simulate-users.md). Co-design: [`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md).
 
 ### Step 5: Checks
 
@@ -41,7 +41,7 @@ Mix and personas: [`references/simulate-users.md`](references/simulate-users.md)
 
 ### Step 8: Iterative loop (with user)
 
-[`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) + [`../references/scenario-co-design.md`](../references/scenario-co-design.md) — review **latest traces** and **scenario setup** with the user; propose nuance before coding. See shell Step 8.
+[`../references/iterative-eval-loop.md`](../references/iterative-eval-loop.md) — review **latest traces** and **scenario setup** with the user; propose nuance before coding. See shell Step 8.
 
 ## Evaluation nuances
 
