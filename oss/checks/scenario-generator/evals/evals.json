@@ -1,0 +1,51 @@
+{
+  "skill_name": "scenario-generator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "support-bot-red-team",
+      "prompt": "I have a customer support chatbot that handles order inquiries. I'm worried about prompt injection and users tricking it into revealing internal refund policies. The agent is `def support_agent(inputs: str) -> str`. Can you create adversarial giskard scenarios?",
+      "expected_output": "Python code with Suite, prompt injection and data-leakage scenarios, Conformity and FnCheck checks, set_default_generator, target= wiring. Should ask about boundaries if missing but proceed with reasonable attacks.",
+      "files": ["SKILL.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "scenario-generator"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "generated-code-rules"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "uv pip install"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "rag-evaluator"}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "rag-injection",
+      "prompt": "My RAG bot sometimes follows instructions embedded in user-pasted documents. Help me red-team it with giskard.checks multi-turn scenarios.",
+      "expected_output": "Adversarial scenarios including document-injection pattern, multi-turn UserSimulator optional, Conformity/LLMJudge checks, references attack-patterns or examples.",
+      "files": ["SKILL.md", "references/attack-patterns.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "references/attack-patterns.md", "pattern": "injection"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "multi-turn-scenarios"}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "sql-exfiltration",
+      "prompt": "Our text-to-SQL agent might leak schema details or run destructive SQL when jailbroken. Create red-team scenarios — quality evals are handled separately.",
+      "expected_output": "Should point to text2sql-evaluator for quality baselines if user conflates tasks; adversarial scenarios for SQL injection / exfiltration attempts with FnCheck on queries[] when applicable.",
+      "files": ["SKILL.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "text2sql-evaluator"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "attack-patterns"}
+      ]
+    },
+    {
+      "id": 4,
+      "name": "debug-failing-scenario",
+      "prompt": "One of my adversarial giskard scenarios keeps failing intermittently. How do I debug what the agent actually did?",
+      "expected_output": "Points to Debug with Spy official how-to via giskard-how-to.md, suggests inspecting trace.last.outputs and tool_calls, may mention set_default_generator for judge flakiness.",
+      "files": ["SKILL.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "giskard-how-to"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "judge-calibration"}
+      ]
+    }
+  ]
+}
