@@ -123,9 +123,19 @@ Scenario("follow_up_persona").interact(inputs=curious_user)
 
 Adapt `context_key` / `answer_key` to the user's output shape — see [`tool-usage.md`](./tool-usage.md).
 
-## Suite mix
+## Suite mix (default)
 
-Unless the user wants static-only: combine static gold/OOS with phased and chained personas for paraphrase, follow-up, and handoffs.
+Unless the user wants **static-only**:
+
+| Share | Type | Purpose |
+|-------|------|---------|
+| ~40% | Static `inputs="..."` | Gold Q&A, labelled recall@k, OOS baselines, fast CI |
+| ~40% | Phased or chained personas | Follow-up, paraphrase, handoffs, `vague_then_specific`, `offtopic_then_data` |
+| ~20% | Policy / adjacent-OOS dialogue | `oos_probe`, citation pressure, decline after in-domain turns |
+
+Persona scenarios: `max_steps` 4–8 (phased) or chained sims with `max_steps=1` per role; add `FnCheck` that `len(trace.interactions) >= 3` and trace-pattern retrieval checks — [`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md), [`tool-usage.md`](./tool-usage.md).
+
+Do not ship a first suite that is only single-turn static strings unless the user explicitly asked.
 
 ## When a persona scenario fails
 
