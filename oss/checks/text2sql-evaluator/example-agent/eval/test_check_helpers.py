@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from eval.check_helpers import (  # noqa: E402
     _refused_on_any_turn,
+    all_sql,
     non_tool_before_data_query,
     parse_first_integer,
 )
@@ -83,6 +84,28 @@ def test_non_tool_before_data_query_false_when_first_has_query() -> None:
         ]
     )
     assert non_tool_before_data_query(trace) is False
+
+
+def test_all_sql_spans_multiple_interactions() -> None:
+    trace = _trace(
+        [
+            _interaction_outputs(
+                {
+                    "queries": [{"sql": 'SELECT * FROM "User"', "success": True}],
+                    "answer": "users",
+                }
+            ),
+            _interaction_outputs(
+                {
+                    "queries": [{"sql": 'JOIN "Order"', "success": True}],
+                    "answer": "orders",
+                }
+            ),
+        ]
+    )
+    combined = all_sql(trace)
+    assert '"User"' in combined
+    assert '"Order"' in combined
 
 
 def test_non_tool_before_data_query_false_all_empty() -> None:

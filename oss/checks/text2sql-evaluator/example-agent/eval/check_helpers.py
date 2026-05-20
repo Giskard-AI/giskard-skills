@@ -5,7 +5,30 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from giskard.checks import FnCheck
+from giskard.checks import FnCheck, LLMJudge
+
+_CONVERSATION_TRANSCRIPT = """
+{% for interaction in trace.interactions %}
+--- Turn {{ loop.index }} ---
+User: {{ interaction.inputs }}
+Agent: {{ (interaction.outputs or {}).get('answer', '') }}
+Tool log: {{ (interaction.outputs or {}).get('queries', []) }}
+{% endfor %}
+"""
+
+
+def llm_judge_conversation(name: str, criteria: str) -> LLMJudge:
+    """LLMJudge over the full multi-turn transcript with explicit rubric text."""
+    return LLMJudge(
+        name=name,
+        prompt=(
+            "Evaluate this data analytics assistant conversation.\n\n"
+            f"Pass criteria:\n{criteria.strip()}\n\n"
+            "Be fair: multiple valid SQL approaches are OK if the agent states assumptions.\n"
+            "Fail only on clear errors, invented metrics, or ignoring a direct follow-up.\n\n"
+            f"Transcript:{_CONVERSATION_TRANSCRIPT}"
+        ),
+    )
 
 REFUSAL_WORDS = (
     "not allowed",
@@ -39,6 +62,14 @@ def queries(trace: Any) -> list[dict]:
     return list(outputs.get("queries") or [])
 
 
+def all_queries(trace: Any) -> list[dict]:
+    """Return SQL tool logs from every interaction in the trace."""
+    combined: list[dict] = []
+    for interaction in trace.interactions:
+        combined.extend(list((interaction.outputs or {}).get("queries") or []))
+    return combined
+
+
 def answer(trace: Any) -> str:
     """Return the natural-language answer from the last interaction."""
     outputs = trace.last.outputs or {}
@@ -54,8 +85,8 @@ def last_sql(trace: Any) -> str:
 
 
 def all_sql(trace: Any) -> str:
-    """Concatenate all SQL strings in the trace for substring checks."""
-    return " ".join(str(q.get("sql", "")) for q in queries(trace))
+    """Concatenate all SQL strings across every interaction."""
+    return " ".join(str(q.get("sql", "")) for q in all_queries(trace))
 
 
 def parse_first_integer(text: str) -> int | None:
@@ -102,6 +133,26 @@ def fn_gold_count(
         if parsed is None:
             return False
         return abs(parsed - expected) <= tolerance
+
+    return FnCheck(name=check_name, fn=_check)
+
+
+def fn_gold_count_any_turn(
+    expected: int,
+    *,
+    tolerance: int = 0,
+    name: str | None = None,
+) -> FnCheck:
+    """FnCheck that any interaction answer contains an integer near expected."""
+    check_name = name or f"gold_count_any_turn_{expected}"
+
+    def _check(trace: Any) -> bool:
+        for interaction in trace.interactions:
+            ans = str((interaction.outputs or {}).get("answer", ""))
+            parsed = parse_first_integer(ans)
+            if parsed is not None and abs(parsed - expected) <= tolerance:
+                return True
+        return False
 
     return FnCheck(name=check_name, fn=_check)
 

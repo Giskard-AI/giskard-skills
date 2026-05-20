@@ -107,7 +107,7 @@ After the first `suite.run()`, always follow [`../references/iterative-eval-loop
 
 1. **Run** the suite; persist JSON/JUnit results.
 2. **Classify** each failure (agent bug vs check scoped to `trace.last` vs flaky judge).
-3. **If ~100% pass** on quality scenarios — suite is too easy: add Tier 2 directions, personas, or tighter gold checks.
+3. **If ~100% pass** on quality scenarios — suite is too easy: add **longer personas**, mixed directions per thread, and `LLMJudge`/`Conformity` rubrics — not brittle SQL substring checks.
 4. **Fix** agent/guardrails for real bugs; fix checks for false fails (especially multi-turn — [`../references/multi-turn-scenarios.md`](../references/multi-turn-scenarios.md)).
 5. **Re-run** until the suite produces actionable failures or stable CI must-pass groups (safety).
 
@@ -122,7 +122,7 @@ Prefer **`FnCheck` over `Conformity`** for safety, refusals, and schema lists �
 - **LIMIT policy**: fail on successful non-aggregate SELECT without `LIMIT`, not on recovery narration
 - **Gold metrics**: parse integers from `answer` on fixed seeds
 - **Multi-turn refusal**: scan **all** `trace.interactions` for refusal/blocked — not `trace.last` only after safe follow-up SQL
-- **Phased personas**: `non_tool_before_data` only when testing clarify-then-query; drop if agent legitimately queries on vague asks
+- **Phased personas**: prefer `LLMJudge` on full transcript for ambiguous metrics; `FnCheck` gold only on crisp single-turn static cases
 
 CI order: `validate_sql` tests → `--safety-only` scenarios → full quality suite → **iterative loop** before calling the suite "done".
 

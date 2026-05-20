@@ -152,8 +152,10 @@ FnCheck(name="simulator_goal_reached", fn=lambda trace: _goal_reached(trace))
 | Share | Type | Purpose |
 |-------|------|---------|
 | ~40% | Static `inputs="..."` | Gold metrics, guardrails, fast CI |
-| ~40% | Phased or chained personas | Realistic phrasing, handoffs, ambiguity |
+| ~40% | Phased or chained personas | Realistic phrasing, handoffs, ambiguity, mixed directions |
 | ~20% | Safety dialogue personas | Destructive intent via conversation |
+
+Persona checks: **`FnCheck`** (tool/safety) + **`llm_judge_conversation`** / **`Conformity`** rubrics — not SQL substring traps.
 
 ## When a persona scenario fails
 
@@ -163,7 +165,16 @@ Use [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-
 
 - **Agent bug** — fix product; keep scenario
 - **Check used `trace.last` on multi-turn** — switch to full-trace patterns ([`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md))
-- **Always passes** — persona or prompt too easy; harden
+- **Always passes** — extend persona (more turns, mixed directions) or add chained handoff; use conversation `LLMJudge` — not superspecific `FnCheck` on SQL text
+
+### Iterative hardening (quality suites)
+
+When re-running the loop after ~100% pass:
+
+1. **Remove** brittle checks (SQL keyword must-match, `"2" in answer`) unless safety-critical
+2. **Add** phased personas covering 2+ direction slugs in one thread (e.g. revenue + pending + test users)
+3. **Use** `llm_judge_conversation`-style rubrics with explicit pass bullets — calibrate per [`judge-calibration.md`](../../references/judge-calibration.md)
+4. **Keep** ~40% static crisp gold / guardrails for fast CI; shift new difficulty into personas
 
 ## See also
 
