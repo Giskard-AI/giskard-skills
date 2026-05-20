@@ -63,6 +63,98 @@ Name scenarios after the **user flow** (`case_id_memory`, `refund_follow_up`) �
 
 All three share the same trace and the same rule: **per-step checks** for turn-specific expectations; **trace-pattern** `FnCheck`s when wording or turn order varies (see below).
 
+## Different personas, inputs, and targets per step
+
+Each `.interact()` is its own **step boundary**: you can change **who speaks** (persona / input driver) and **what you assert** before the next step. The conversation still shares one `trace`, so later checks can read earlier turns.
+
+### What can change on each `.interact()`
+
+| Per step | Options | Notes |
+|----------|---------|--------|
+| **User / persona** | Different `UserSimulator` instances, static `inputs="..."`, or `inputs=lambda trace: ...` | Most common multi-turn pattern for role handoffs |
+| **Input driver** | `str`, `UserSimulator`, trace-aware callable, async generator | Mix types across steps in one scenario |
+| **Step metadata** | `metadata={"persona_id": "exec"}` | Tags turns in reports |
+| **Checks after that step** | `.check(...)` only for that step’s policy | e.g. vague turn must not require SQL; analyst turn must |
+| **SUT (`target`)** | One agent for the whole scenario **run** | See below — not a different `target` per `.interact()` in the same run |
+
+### Example: two personas, two `.interact()` steps (text2sql handoff)
+
+Step 1 = executive (`max_steps=1`). Step 2 = analyst (`max_steps=3`) in the **same thread**. One `target=` at run time drives the agent for every step.
+
+```python
+from giskard.checks import Scenario, FnCheck, UserSimulator, Suite
+
+exec_sim = UserSimulator(
+    persona="""
+    You are a busy executive. Ask vaguely about revenue in one short message.
+    Do not name SQL tables. Do not ask follow-ups.
+    """,
+    max_steps=1,
+)
+
+analyst_sim = UserSimulator(
+    persona="""
+    You are a BI analyst continuing the same thread after the executive.
+    Ask for total revenue from completed orders in cents, then whether pending orders matter.
+    Do not write SQL. Stop when both are addressed.
+    """,
+    max_steps=3,
+)
+
+handoff = (
+    Scenario("exec_then_analyst_revenue")
+    .interact(inputs=exec_sim, metadata={"persona_id": "exec"})
+    .interact(inputs=analyst_sim, metadata={"persona_id": "analyst"})
+    .check(FnCheck(name="multi_turn", fn=lambda t: len(t.interactions) >= 2))
+    .check(FnCheck(name="any_sql", fn=lambda t: any(
+        (i.outputs or {}).get("queries") for i in t.interactions
+    )))
+)
+
+await Suite(name="handoff").append(handoff).run(target=your_agent)
+```
+
+RAG handoff is the same shape: `employee_sim` → `manager_sim` with `max_steps=1` each — see `rag-evaluator/references/simulate-users.md` (`employee_then_manager`).
+
+### Phased persona vs chained personas
+
+| Style | API | Persona behavior |
+|-------|-----|------------------|
+| **Chained personas** | `.interact(inputs=sim_a).interact(inputs=sim_b)` | Distinct `UserSimulator` per role; usually `max_steps=1` per sim |
+| **Phased persona** | Single `.interact(inputs=sim)` with `max_steps=4–8` | One sim; phases described inside `persona=` (vague → specific) |
+
+Use **chained** when the **user identity** changes (exec → analyst). Use **phased** when the **same user** refines their ask across turns.
+
+### Trace-aware inputs (later turn depends on earlier agent reply)
+
+When the next user message must react to the last answer, pass a callable — see [Dynamic Scenarios](https://docs.giskard.ai/oss/checks/tutorials/dynamic-scenarios):
+
+```python
+.interact(inputs="What is the refund window?")
+.interact(
+    inputs=lambda trace: (
+        f"You said: {trace.last.outputs}. Does that apply to annual plans only?"
+    ),
+)
+```
+
+Giskard also accepts callables with signature `(trace) -> str` on `inputs` (and optional `outputs` callables with `(trace, inputs)` when not using `target=`).
+
+### SUT (`target`) scope across steps
+
+Within one scenario **run**, every dynamic `.interact()` uses the **same** system under test:
+
+| Where to set `target` | Precedence (highest wins at run time) |
+|-----------------------|----------------------------------------|
+| `await scenario.run(target=agent)` | Run override |
+| `await suite.run(target=agent)` | Suite run override (typical in evaluator skills) |
+| `Suite(name="...", target=agent)` | Suite default |
+| `Scenario("...", target=agent)` | Scenario default |
+
+To compare **two agents** on the same scripted dialogue, use **two scenarios** (or two suite runs) with the same `.interact()` chain and different `target=` — not different targets on individual `.interact()` calls in one run.
+
+For **replay / prefix** without calling the live agent on early turns, pass `outputs=` on those `.interact()` steps only; later steps still use `target=` — [Multi-Turn Scenarios tutorial](https://docs.giskard.ai/oss/checks/tutorials/multi-turn).
+
 ## Default suite composition
 
 Unless the user asks for **static-only** (smoke CI, gold-only regression):
