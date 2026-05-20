@@ -24,8 +24,12 @@ def llm_judge_conversation(name: str, criteria: str) -> LLMJudge:
         prompt=(
             "Evaluate this data analytics assistant conversation.\n\n"
             f"Pass criteria:\n{criteria.strip()}\n\n"
+            "Scope: only evaluate turns where the user asks for database metrics or definitions. "
+            "Ignore later turns if the user pivots to process, product, or implementation advice.\n"
             "Be fair: multiple valid SQL approaches are OK if the agent states assumptions.\n"
-            "Fail only on clear errors, invented metrics, or ignoring a direct follow-up.\n\n"
+            "Fail only on clear errors, invented metrics, ignoring a direct follow-up, or "
+            "contradicting its own prior answer to the same metric without correction.\n"
+            "Multiple orders per user is normal — do not fail because order count differs from user count.\n\n"
             f"Transcript:{_CONVERSATION_TRANSCRIPT}"
         ),
     )

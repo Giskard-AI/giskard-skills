@@ -223,9 +223,9 @@ _persona_ambiguous_active = UserSimulator(
     - Turn 2: If the agent gives a number without defining "active", ask what that means in business terms.
     - Turn 3: Ask whether inactive companies or test accounts could change the number.
     - Stop when you have a count plus a clear definition and any caveats about test data.
-    Do not write SQL.
+    Do not ask for implementation advice or wrap-up questions. Do not write SQL.
     """,
-    max_steps=8,
+    max_steps=5,
 )
 
 persona_ambiguous_active_customers = (
@@ -368,21 +368,22 @@ _persona_finance_audit = UserSimulator(
     Phase 2: Ask for the total in cents and which order statuses count toward revenue.
     Phase 3: Ask whether test users could inflate user counts shown to leadership.
     Phase 4: Ask how many users actually placed orders vs total signups.
-    Do not write SQL. Stop when revenue definition and user-vs-order engagement are clear.
+    Stop after phase 4. Do not write SQL.
     """,
-    max_steps=10,
+    max_steps=6,
 )
 
 persona_finance_metric_audit = (
     Scenario("persona_finance_metric_audit")
     .interact(inputs=_persona_finance_audit)
     .check(fn_any_interaction_executed_query())
-    .check(fn_multi_turn(min_turns=4))
+    .check(fn_multi_turn(min_turns=3))
     .check(
         llm_judge_conversation(
             "finance_audit_rubric",
             (
-                "- Revenue discussion distinguishes completed vs pending (or states assumptions).\n"
+                "- By the end of the dialogue, revenue scope (completed vs pending) is clear or "
+                "assumptions are stated — initial vagueness OK if corrected on follow-up.\n"
                 "- Test-account or signup inflation is addressed when raised.\n"
                 "- The agent distinguishes users who placed orders from total user count when asked.\n"
                 "- Numeric claims are grounded in database queries across the dialogue."
@@ -397,9 +398,9 @@ _persona_adoption_pm = UserSimulator(
     Phase 1: Ask how adoption looks across our customer organizations (no SQL jargon).
     Phase 2: Ask which company has the most users and whether inactive orgs are included.
     Phase 3: Ask if the picture changes when excluding test accounts.
-    Do not write SQL. Stop when org-level adoption and test-account caveats are discussed.
+    Stop after phase 3 — do not ask wrap-up, feedback, or process questions. Do not write SQL.
     """,
-    max_steps=8,
+    max_steps=4,
 )
 
 persona_adoption_across_orgs = (
@@ -411,9 +412,10 @@ persona_adoption_across_orgs = (
         llm_judge_conversation(
             "org_adoption_grain",
             (
-                "- The agent addresses organization-level user counts or membership (not only a global user total).\n"
+                "- The agent addresses organization-level user counts or membership when asked "
+                "(per-org breakdown or named org with a count is sufficient).\n"
                 "- Inactive organizations or test accounts are discussed when the user asks.\n"
-                "- The agent uses SQL for factual claims about adoption."
+                "- Factual claims about adoption use SQL, not invented figures."
             ),
         )
     )
@@ -434,9 +436,9 @@ _persona_data_engineer = UserSimulator(
     - Turn 1: Ask for real users excluding test accounts.
     - Turn 2: Ask how many of those users actually placed an order.
     - Turn 3: Briefly explain both numbers in plain language for the support lead.
-    Do not write SQL.
+    Do not write SQL. Stop after turn 3 — do not ask for additional summaries.
     """,
-    max_steps=5,
+    max_steps=3,
 )
 
 persona_support_then_engineer = (
@@ -450,8 +452,9 @@ persona_support_then_engineer = (
             "real_users_vs_engaged",
             (
                 "- The agent reports real (non-test) users with SQL backing when the engineer asks.\n"
-                "- The agent addresses users who placed orders vs total users when asked.\n"
-                "- Answers stay consistent across the handoff from support to engineer."
+                "- The agent gives a correct count of users who placed orders (2 on the demo seed).\n"
+                "- PASS even if total order rows (3) exceeds users-with-orders — multiple orders per user is valid.\n"
+                "- Fail only if the agent contradicts its own user or order counts without correction."
             ),
         )
     )

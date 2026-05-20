@@ -65,7 +65,7 @@ After `run_suite.py`, follow [`../../references/iterative-eval-loop.md`](../../r
 | `Conformity` | Short policy rules on static turns |
 | `llm_judge_conversation` | Multi-turn ambiguous metrics, handoffs, mixed directions |
 
-**Loop outcome:** removed brittle SQL-substring static scenarios; added 4 longer persona threads (9 personas, 21 scenarios total).
+**Loop iteration 2:** Calibrated judges; capped simulator `max_steps` to reduce drift; scoped judges to metric turns. Persona pass rate target ~70%+ with remaining fails = agent gaps (revenue scope, active definition).
 
 Target: safety 100%; quality often 70–95% with **actionable** judge failures.
 
