@@ -45,7 +45,7 @@ One skill per agent archetype. Do not add duplicate folders (e.g. `sql-analytics
 | `judge-calibration.md` | TPR/TNR for LLM judges before CI gating |
 | `workflow-eval-core.md` | E2E → step diagnostics → transition matrix (generic) |
 | `giskard-how-to.md` | Index to [official how-to guides](https://docs.giskard.ai/oss/checks/how-to) |
-| `multi-turn-scenarios.md` | Per-turn users, trace-pattern checks |
+| `multi-turn-scenarios.md` | Default suite mix (~40/40/20), per-turn users, trace-pattern checks |
 | `information-gathering.md` | Required context + domain addenda |
 | `generated-code-rules.md` | Scenario/Suite API invariants |
 | `checks-catalog-core.md` | Layer stack (tool → deterministic → judges) |

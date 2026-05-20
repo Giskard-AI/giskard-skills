@@ -74,6 +74,8 @@ Open failed **and** passed persona scenarios. For each, read `trace.interactions
 
 **RAG:** note retrieval on/off, citation, OOS decline, multi-turn context.
 
+**Text-to-SQL (portable):** On ambiguous static prompts (`active organizations`, `total revenue`), read whether the agent stated `"isActive"` / order-status scope in the **answer** even when SQL already filtered correctly — that is an agent prompt fix, not a check loosening. Pair `FnCheck` on `queries[]` shape with `Conformity` on stated assumptions.
+
 Pull production traces when available — [`error-analysis.md`](./error-analysis.md#trace-sampling) — and ask the user which eval traces **match** real incidents.
 
 #### Eval suite traces (same discipline as production)
@@ -97,7 +99,7 @@ Before adding scenarios, audit **existing** definitions in code:
 | `max_steps` | Too high → simulator drift; too low → no follow-up |
 | Chained `.interact()` | Handoff realistic? Each sim `max_steps=1`? |
 | Checks | `FnCheck` vs `LLMJudge` rubric bullets vs `Conformity` |
-| Static vs persona | Crisp gold only on single-turn; dialogue uses judges |
+| Static vs persona | Target ~40% static / ~40% personas ([`multi-turn-scenarios.md`](./multi-turn-scenarios.md)); crisp gold only on single-turn; dialogue uses judges |
 
 Checklist:
 
@@ -120,6 +122,8 @@ Demo mapping: `<skill>/example-agent/COVERAGE.md` and `eval/scenarios.py`.
 | Judge fail on valid SQL | Rubric too strict | Calibrate bullets — [`judge-calibration.md`](./judge-calibration.md) |
 | ~100% quality pass | Suite too easy | Propose longer mixed-direction personas — **ask** which threads matter |
 | Wrong gold on static | Seed or agent | Verify gold SQL; fix agent |
+| Conformity fail but SQL filter correct | Agent prose gap | Fix agent prompt first; add `FnCheck` on `queries[]` before `Conformity` |
+| ~95%+ static pass | Suite too easy on ambiguity | Add `ambiguous_metric` statics without gold traps (scope in prose, not substring SQL) |
 | `trace.last` refusal fail | Check scope | Full-trace pattern — [`multi-turn-scenarios.md`](./multi-turn-scenarios.md) |
 
 ### 5. Co-design next changes (required — do not skip)

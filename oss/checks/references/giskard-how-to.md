@@ -6,6 +6,7 @@ Map skill workflows to [official Giskard how-to guides](https://docs.giskard.ai/
 |------------|----------------|
 | First suite / quickstart | [Quickstart](https://docs.giskard.ai/oss/checks) |
 | Run suites in CI | [Run Tests with pytest](https://docs.giskard.ai/oss/checks/how-to/run-tests-with-pytest), [CI/CD Integration](https://docs.giskard.ai/oss/checks/how-to/ci-cd-integration) |
+| Chained multi-turn (`.interact().check().interact()`) | [Multi-Turn Scenarios](https://docs.giskard.ai/oss/checks/tutorials/multi-turn) |
 | Multi-turn personas | [Simulate Users](https://docs.giskard.ai/oss/checks/how-to/simulate-users) |
 | Debug failing scenarios | [Debug with Spy](https://docs.giskard.ai/oss/checks/how-to/debug-with-spy) |
 | Dict / structured agent outputs | [Testing Structured Outputs](https://docs.giskard.ai/oss/checks/how-to/testing-structured-outputs) |
