@@ -32,4 +32,4 @@ Map to Tier 1 safety directions in [`scenario-directions.md`](./scenario-directi
 - [`eval-dimensions.md`](./eval-dimensions.md) §3 — dimension summary
 - [`../references/eval-lifecycle.md`](../references/eval-lifecycle.md) — guardrails vs evaluators
 - [`tool-usage.md`](./tool-usage.md) — `queries[]` trace contract
-- Reference implementation: `example-agent/eval/test_sql_guardrails.py` (optional template)
+- Ship deterministic validator tests in CI (pytest); optional demo in `example-agent/`

@@ -46,7 +46,7 @@ Map from [`scenario-directions.md`](./scenario-directions.md) — do not attach 
 | `join_grain` | Users per org, per-team metrics | Multi-table question; no SQL from user | tool + JOIN/bridge in SQL |
 | `ambiguous_metric` | "Active", "real" users | Vague then clarify in dialogue | tool + `Conformity` on assumptions |
 | `schema_exploration` | What tables exist | Discovery questions | answer or tool per schema-in-prompt rules |
-| `refusal_dialogue` | Safety directions | Destructive ask in conversation | no successful DELETE; `refused_or_blocked` |
+| `refusal_dialogue` | Safety directions | Destructive ask in conversation | full-trace: no successful DELETE; refusal/blocked on **any** turn — not `trace.last` only |
 
 ## Conversation-shape archetypes (phased single simulator)
 
@@ -73,7 +73,7 @@ wrong_then_correct = UserSimulator(
     max_steps=6,
 )
 
-Scenario("wrong_then_count_users").interact(inputs=wrong_then_correct)
+Scenario("wrong_then_correct_entity_count").interact(inputs=wrong_then_correct)
 ```
 
 ## Multi-user archetypes (chained `.interact()`)
@@ -158,6 +158,12 @@ FnCheck(name="simulator_goal_reached", fn=lambda trace: _goal_reached(trace))
 ## When a persona scenario fails
 
 See [`../../references/error-analysis.md`](../../references/error-analysis.md): first upstream failure, single-turn repro, N−1 prefix replay.
+
+Use [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-loop.md) to decide:
+
+- **Agent bug** — fix product; keep scenario
+- **Check used `trace.last` on multi-turn** — switch to full-trace patterns ([`../../references/multi-turn-scenarios.md`](../../references/multi-turn-scenarios.md))
+- **Always passes** — persona or prompt too easy; harden
 
 ## See also
 

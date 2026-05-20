@@ -21,7 +21,7 @@ Ask the user to return:
 {"answer": str, "queries": [{"sql": str, "success": bool, "blocked": bool, ...}]}
 ```
 
-See `example-agent/src/agent.py`. Without `queries`, tool usage checks are guesswork (`Conformity` on "must use database") — **urge a wrapper** before shipping evals.
+If the user has no `queries[]` in the return shape, ask them to wrap the agent before shipping evals. Without a tool log, usage checks devolve into `Conformity` ("must use database") — weak signal.
 
 ## Deterministic patterns (preferred)
 
@@ -31,13 +31,15 @@ def _queries(trace) -> list:
 
 executed = FnCheck(name="executed_query", fn=lambda t: len(_queries(t)) > 0)
 
-used_user_table = FnCheck(
-    name="queried_user_table",
-    fn=lambda t: any('"User"' in str(q.get("sql", "")) for q in _queries(t)),
+used_entity_table = FnCheck(
+    name="queried_entity_table",
+    fn=lambda t: any('"<EntityTable>"' in str(q.get("sql", "")) for q in _queries(t)),
 )
 ```
 
-Combine with gold `FnCheck` on parsed numbers in `answer` when the seed DB is fixed.
+Replace `<EntityTable>` with the user's table name (e.g. `"User"`, `customers`).
+
+Combine with gold `FnCheck` on parsed numbers in `answer` when the user provides a fixed seed DB.
 
 ## Exceptions (document in scenario plan)
 
