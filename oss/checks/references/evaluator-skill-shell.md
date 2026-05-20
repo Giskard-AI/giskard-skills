@@ -59,6 +59,13 @@ uv pip install --prerelease=allow 'giskard-checks>=1.0.2b3'
 
 See active skill `SKILL.md`.
 
+### Step 5b: Suite composition (default)
+
+Unless the user wants **static-only**, every first suite draft must include **phased or chained** `UserSimulator` scenarios (~40% of cases) with multi-turn checks — not only single static `.interact(inputs="...")` strings.
+
+- Mix targets and persona archetypes: per-skill `references/simulate-users.md`
+- Trace-pattern checks, `multi_turn` length floor, any-turn safety: [`multi-turn-scenarios.md`](./multi-turn-scenarios.md)
+
 ### Step 6: Pick checks
 
 [`checks-catalog-core.md`](./checks-catalog-core.md) + skill `references/checks-catalog.md`. [`generated-code-rules.md`](./generated-code-rules.md).

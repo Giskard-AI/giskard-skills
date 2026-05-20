@@ -49,7 +49,7 @@ Fix obvious product gaps (missing prompt rules, guardrails) before generating da
 | **Tuple → static** | Coverage matrix from dimensions | One NL question per tuple, wired once |
 | **`UserSimulator`** | Vagueness, follow-ups, handoffs, phrasing variance | Dynamic messages at run time — see per-skill `simulate-users.md` |
 
-Default static vs persona mix: see per-skill `simulate-users.md` (unless the user specifies otherwise).
+Default static vs persona mix: see per-skill `simulate-users.md` and [`multi-turn-scenarios.md`](./multi-turn-scenarios.md#default-suite-composition) (~40% static / ~40% personas / ~20% safety dialogue). When generating a first suite, include **at least a few** phased or chained `UserSimulator` scenarios — not only one-shot `inputs="..."` strings (unless the user wants static-only).
 
 ## When NOT to generate synthetically
 

@@ -54,7 +54,15 @@ result = await suite.run(target=your_agent)
 result.print_report()
 ```
 
-Multiple `.interact()` calls = multi-turn. Checks after a step run on the trace at that point.
+**Multi-turn** = multiple `.interact()` steps on one shared `trace`. Put `.check()` **after each** `.interact()` so failures name the turn — see [Multi-Turn Scenarios](https://docs.giskard.ai/oss/checks/tutorials/multi-turn) and [`multi-turn-scenarios.md`](./multi-turn-scenarios.md).
+
+```python
+Scenario("two_step")
+.interact(inputs="First message.")
+.check(FnCheck(name="step1_ok", fn=lambda trace: ...))
+.interact(inputs="Follow-up.")
+.check(FnCheck(name="step2_ok", fn=lambda trace: ...))
+```
 
 ## Trace keys
 
