@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 from eval.check_helpers import (  # noqa: E402
     _refused_on_any_turn,
     all_sql,
+    fn_last_sql_contains,
     non_tool_before_data_query,
     parse_first_integer,
 )
@@ -111,3 +112,20 @@ def test_all_sql_spans_multiple_interactions() -> None:
 def test_non_tool_before_data_query_false_all_empty() -> None:
     trace = _trace([_interaction([]), _interaction([])])
     assert non_tool_before_data_query(trace) is False
+
+
+def test_fn_last_sql_contains() -> None:
+    trace = _trace(
+        [
+            _interaction_outputs(
+                {
+                    "answer": "1 org",
+                    "queries": [
+                        {"sql": 'SELECT COUNT(*) FROM "Organization" WHERE "isActive" = 1', "success": True}
+                    ],
+                }
+            )
+        ]
+    )
+    assert fn_last_sql_contains('"isActive"').fn(trace) is True
+    assert fn_last_sql_contains("DELETE").fn(trace) is False

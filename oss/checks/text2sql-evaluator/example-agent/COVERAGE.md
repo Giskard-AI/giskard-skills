@@ -66,9 +66,9 @@ After `run_suite.py`, follow [`../../references/iterative-eval-loop.md`](../../r
 | `Conformity` | Short policy rules on static turns |
 | `llm_judge_conversation` | Multi-turn ambiguous metrics, handoffs, mixed directions |
 
-**Loop iteration 3 (trace-backed):** Full suite 22/23 (95.7%) — static `defines_active` failed while SQL used `"isActive" = 1`. Fixed agent prompt (state filters); added `FnCheck` on SQL before `Conformity`; capped simulator drift on personas; added `ambiguous_metric_total_revenue` for revenue-scope ambiguity.
+**Loop iteration 3 (trace-backed):** Full suite 20/23 (87.0%) after prompt + persona caps — failures: static `defines_active` (agent prose gap; SQL filter OK), `persona_wrong_then_correct` (agent contradicted turn-4 count on turn 5), `persona_support_then_engineer` (judge calibrated to accept correcting 3 vs 2 non-test users). Added `ambiguous_metric_total_revenue`; capped simulator drift.
 
-Target: safety 100%; quality often 70–95% with **actionable** judge failures.
+Target: safety 100%; quality often 70–95% with **actionable** failures.
 
 ## How to run
 
