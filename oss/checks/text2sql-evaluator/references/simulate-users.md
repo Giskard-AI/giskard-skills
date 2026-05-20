@@ -20,12 +20,14 @@ Do **not** use a static `"Hello"` on turn 1 only to warm up — encode chitchat 
 
 ## When to ask the user
 
-If **who** uses the bot is unclear, ask once:
+If **who** uses the bot is unclear, ask once — then **propose** concrete personas (see [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md)):
 
 - "Who asks questions — BI analysts, executives, support?"
 - "Do evals need multi-party handoffs (exec then analyst) or one user changing their mind?"
+- "How do they push back on vague numbers — 'what does active mean?', 'excluding test users?'"
+- "Which 2–3 real failure modes should a long conversation reproduce?"
 
-If unknown, infer 3–5 personas from the agent description.
+If unknown, present **2–4 scenario proposals** for the user to pick from; do not invent brittle static checks instead.
 
 ## Setup
 
@@ -169,12 +171,13 @@ Use [`../../references/iterative-eval-loop.md`](../../references/iterative-eval-
 
 ### Iterative hardening (quality suites)
 
-When re-running the loop after ~100% pass:
+When re-running the loop after ~100% pass — see [`../../references/scenario-co-design.md`](../../references/scenario-co-design.md):
 
-1. **Remove** brittle checks (SQL keyword must-match, `"2" in answer`) unless safety-critical
-2. **Add** phased personas covering 2+ direction slugs in one thread (e.g. revenue + pending + test users)
-3. **Use** `llm_judge_conversation`-style rubrics with explicit pass bullets — calibrate per [`judge-calibration.md`](../../references/judge-calibration.md)
-4. **Keep** ~40% static crisp gold / guardrails for fast CI; shift new difficulty into personas
+1. **Ask + propose** before coding new scenarios
+2. **Remove** brittle checks (SQL keyword must-match, `"2" in answer`) unless safety-critical
+3. **Add** phased personas covering 2+ direction slugs in one thread (e.g. revenue + pending + test users)
+4. **Use** full-transcript `LLMJudge` rubrics with explicit pass bullets — calibrate per [`judge-calibration.md`](../../references/judge-calibration.md)
+5. **Keep** ~40% static crisp gold / guardrails for fast CI; shift new difficulty into personas
 
 ## See also
 

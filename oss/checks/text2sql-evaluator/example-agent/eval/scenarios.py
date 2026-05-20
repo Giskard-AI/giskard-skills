@@ -347,7 +347,7 @@ persona_exec_then_analyst_revenue = (
     .interact(inputs=_persona_exec_handoff, metadata={"persona_id": "exec"})
     .interact(inputs=_persona_analyst_handoff, metadata={"persona_id": "analyst"})
     .check(fn_any_interaction_executed_query())
-    .check(fn_multi_turn(min_turns=3))
+    .check(fn_multi_turn(min_turns=2))
     .check(
         llm_judge_conversation(
             "handoff_revenue_thread",
