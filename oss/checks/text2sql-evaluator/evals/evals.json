@@ -1,0 +1,40 @@
+{
+  "skill_name": "text2sql-evaluator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "postgres-analytics-agent",
+      "prompt": "We have a text-to-SQL agent over Postgres. It exposes `def ask(question: str) -> dict` returning `answer` and `queries` (list of SQL attempts). Read-only SELECT only with validate_sql guardrails. I need giskard evals for correct counts and blocking DELETE requests.",
+      "expected_output": "Runnable giskard.checks Suite with UserSimulator personas (simulate-users) plus static prompts; FnCheck on queries[]; gold FnCheck where possible. Asks for user personas if missing. set_default_generator for UserSimulator and judges. No third-party observability frameworks.",
+      "files": ["SKILL.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "queries\\[\\]"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "simulate-users"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "validate_sql"}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "guardrails-only",
+      "prompt": "I only want fast CI tests for our SQL validator function, no LLM. We block DELETE and require LIMIT on SELECT.",
+      "expected_output": "Deterministic pytest or script testing validate_sql directly, plus brief note to add agent scenarios separately. No API key required.",
+      "files": ["SKILL.md", "references/sql-safety.md"],
+      "assertions": [
+        {"type": "file_contains", "path": "references/sql-safety.md", "pattern": "validate_sql"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "guardrail"}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "use-bundled-example",
+      "prompt": "I don't have an agent yet. Can you show me how to evaluate a data analytics agent with giskard?",
+      "expected_output": "Points to example-agent/, references/scenario-directions.md tiers, explains uv sync, test_sql_guardrails.py, run_suite.py, and how to swap in their SUT.",
+      "files": ["SKILL.md", "example-agent/run_suite.py"],
+      "assertions": [
+        {"type": "file_exists", "path": "example-agent/run_suite.py"},
+        {"type": "file_contains", "path": "example-agent/eval/test_sql_guardrails.py", "pattern": "validate_sql"},
+        {"type": "file_contains", "path": "SKILL.md", "pattern": "example-agent"}
+      ]
+    }
+  ]
+}
