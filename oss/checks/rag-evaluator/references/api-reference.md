@@ -12,6 +12,7 @@ from giskard.checks import (
     Check, CheckResult, CheckStatus,
     Metric,
     UserSimulator,
+    ScenarioResult, SuiteResult,
 )
 
 # Built-in checks (rule-based, semantic)
@@ -28,6 +29,9 @@ from giskard.checks import (
     LLMJudge, Conformity, Groundedness, AnswerRelevance,
     BaseLLMCheck, LLMCheckResult,
 )
+
+# Structured output validation
+from giskard.checks import JsonValid, RegoPolicy
 
 # Generator config
 from giskard.checks import set_default_generator, get_default_generator
@@ -299,6 +303,20 @@ For best speed/cost: pick your provider's cheapest fast-tier model — judging i
 **Variants**:
 
 - **Per-check override**: pass `generator=Generator(model="openai/gpt-4o")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
+
+## Structured output checks (JsonValid, RegoPolicy)
+
+When the RAG agent returns JSON or dict-shaped outputs, validate shape before semantic judges. Full examples: `../../references/advanced-checks-examples.md`.
+
+```python
+JsonValid(
+    name="answer_json_shape",
+    key="trace.last.outputs",
+    schema={"type": "object", "required": ["answer", "sources"], ...},
+)
+```
+
+`RegoPolicy` suits declarative compliance rules on structured agent output; requires `pip install 'giskard-checks[regorus]'`.
 
 ## Persistence (CI-friendly)
 

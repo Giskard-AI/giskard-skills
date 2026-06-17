@@ -12,7 +12,7 @@ from giskard.checks import (
     Scenario, Suite, Step,
     Trace, Interact, Interaction, InteractionSpec,
     Check, CheckResult, CheckStatus,
-    TestCase, TestCaseResult, ScenarioResult,
+    TestCase, TestCaseResult, ScenarioResult, SuiteResult,
     Metric, resolve,
 )
 
@@ -552,6 +552,14 @@ set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
 Supported model formats follow LiteLLM conventions (e.g., `"openai/gpt-4o"`, `"anthropic/claude-sonnet-4-20250514"`).
+
+## Advanced checks (WithSpy, JsonValid, RegoPolicy)
+
+Full runnable examples: `../../references/advanced-checks-examples.md`.
+
+- **WithSpy** — spy on tool/function calls during an interaction; assert `call_count` / args via `FnCheck`.
+- **JsonValid** — validate JSON shape at a trace key (optional JSON Schema via `schema=`).
+- **RegoPolicy** — evaluate inline Rego policies (`pip install 'giskard-checks[regorus]'`).
 
 ## Result Inspection
 

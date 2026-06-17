@@ -15,10 +15,19 @@ Official user docs: [docs.giskard.ai/oss/checks](https://docs.giskard.ai/oss/che
 ## How to verify skills are current
 
 1. **Fetch latest main** from giskard-oss (`git fetch origin main`).
-2. **Diff public exports** — read `giskard/checks/__init__.py` `__all__` and compare to both skills' `references/api-reference.md` import blocks.
-3. **Spot-check judge signatures** — `Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`, `Toxicity` under `libs/giskard-checks/src/giskard/checks/judges/`.
-4. **Spot-check Scenario/Suite** — `libs/giskard-checks/src/giskard/checks/core/scenario.py`, `scenarios/suite.py`, `core/result.py` (`print_report`, `group_by`, `to_junit_xml`).
-5. **Run skill evals** after API doc changes (`oss/checks/*/evals/evals.json`).
+2. **Run the CI sync checker** (also runs in GitHub Actions on skill changes):
+
+   ```bash
+   git clone --depth 1 https://github.com/Giskard-AI/giskard-oss.git /tmp/giskard-oss
+   python scripts/check_giskard_oss_sync.py --giskard-oss-path /tmp/giskard-oss
+   python -m pytest scripts/test_check_giskard_oss_sync.py -q
+   ```
+
+   Compares `giskard.checks.__all__` to `from giskard.checks import (...)` blocks in all `references/api-reference.md` files. Fails on missing or stale symbols.
+3. **Diff public exports** — read `giskard/checks/__init__.py` `__all__` and compare to both skills' `references/api-reference.md` import blocks.
+4. **Spot-check judge signatures** — `Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`, `Toxicity` under `libs/giskard-checks/src/giskard/checks/judges/`.
+5. **Spot-check Scenario/Suite** — `libs/giskard-checks/src/giskard/checks/core/scenario.py`, `scenarios/suite.py`, `core/result.py` (`print_report`, `group_by`, `to_junit_xml`).
+6. **Run skill evals** after API doc changes (`oss/checks/*/evals/evals.json`).
 
 Record the oss commit you verified against in PR descriptions (e.g. `giskard-oss@b73fff0` — last skills sync).
 
@@ -41,7 +50,12 @@ These exist in current giskard-oss but were missing from initial skill docs:
 
 ### Debugging
 
-- `WithSpy` — patches a target callable and records call metadata on the interaction trace (tool-call debugging).
+- `WithSpy` — patches a target callable and records call metadata on the interaction trace (tool-call debugging). Example: `references/advanced-checks-examples.md`.
+
+### Structured validation
+
+- `JsonValid` — JSON / JSON Schema validation at a trace key.
+- `RegoPolicy` — inline Rego policies (`pip install 'giskard-checks[regorus]'`). Example: `references/advanced-checks-examples.md`.
 
 ### Scan (red team)
 

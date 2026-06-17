@@ -1,0 +1,42 @@
+name: Checks skills OSS sync
+
+on:
+  pull_request:
+    paths:
+      - "oss/checks/**"
+      - "scripts/check_giskard_oss_sync.py"
+      - "scripts/test_check_giskard_oss_sync.py"
+      - ".github/workflows/checks-skills-sync.yml"
+  push:
+    branches: [main]
+    paths:
+      - "oss/checks/**"
+      - "scripts/check_giskard_oss_sync.py"
+      - "scripts/test_check_giskard_oss_sync.py"
+      - ".github/workflows/checks-skills-sync.yml"
+
+jobs:
+  giskard-oss-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Giskard-AI/giskard-oss
+          path: giskard-oss
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run sync checker unit tests
+        working-directory: scripts
+        run: |
+          pip install pytest
+          python -m pytest test_check_giskard_oss_sync.py -q
+
+      - name: Verify skill imports match giskard.checks __all__
+        run: python scripts/check_giskard_oss_sync.py --giskard-oss-path giskard-oss
