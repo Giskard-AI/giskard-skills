@@ -58,6 +58,8 @@ pip install giskard-checks
 
 Do NOT skip this step. The generated scenarios will fail at import time without this package.
 
+**Keep skills aligned with the library:** Prefer `giskard.scan.vulnerability_scan` for automated red-team scans when the user wants broad vulnerability coverage (see `../../references/giskard-oss-sync.md`). Hand-written `Scenario`/`Suite` code in this skill complements scan for domain-specific attacks. API source of truth: [giskard-oss](https://github.com/Giskard-AI/giskard-oss).
+
 ### Step 1: Analyze the Agent and Identify Attack Surfaces
 
 Based on the agent description and fears, identify specific attack surfaces. Consult `references/attack-patterns.md` for the full catalog of adversarial patterns.

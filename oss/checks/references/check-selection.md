@@ -14,7 +14,8 @@ When choosing a check for a scenario, walk this list top to bottom and stop at t
 | 4 | `SemanticSimilarity` | Compare to a reference answer in meaning |
 | 5 | `StringMatching` / `RegexMatching` | Exact keyword, citation marker, or format pattern (cheap sanity) |
 | 6 | `LLMJudge` | Multi-criteria judgment Conformity cannot express in one rule, or need structured pass/fail reasoning |
-| 7 | `FnCheck` | **Only** deterministic programmatic assertions (see below) |
+| 7 | `Toxicity` | Harmful/toxic content across standard categories (safety scenarios) |
+| 8 | `FnCheck` | **Only** deterministic programmatic assertions (see below) |
 
 ## When FnCheck is appropriate
 
@@ -35,6 +36,7 @@ Use `FnCheck` only when the assertion is **objective and structural** — no lan
 | Domain keyword detection for on/off topic | `Conformity(rule="must stay within domain X")` or `AnswerRelevance(context=...)` |
 | Custom logic for "did it hallucinate?" | `Groundedness` or `LLMJudge` with fabrication prompt |
 | Custom logic for "is answer correct?" | `SemanticSimilarity` + `LLMJudge` against gold |
+| Custom logic for toxic/harmful content | `Toxicity` or `Conformity` with safety rule |
 
 **Why:** Keyword `FnCheck` passes on lucky phrasing and fails on valid paraphrases. Judges evaluate intent; they survive wording changes and are easier for users to read and tune.
 

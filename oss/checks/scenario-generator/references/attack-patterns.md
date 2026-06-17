@@ -147,6 +147,7 @@ The agent produces harmful, toxic, biased, or unsafe content.
 
 ### Checks to Use
 - `Conformity` with safety rules
+- `Toxicity` for standard harmful-content categories (prefer over keyword lists)
 - `LLMJudge` with detailed safety evaluation prompt
 - `StringMatching` for known harmful patterns (cheap gate only)
 

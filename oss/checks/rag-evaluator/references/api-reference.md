@@ -1,6 +1,6 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). **Library source of truth:** [giskard-oss](https://github.com/Giskard-AI/giskard-oss) — see `../../references/giskard-oss-sync.md` for sync steps. For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
 
 ## Imports
 
@@ -91,6 +91,9 @@ print(f"Pass rate: {result.pass_rate * 100:.1f}%")
 - `pass_rate: float`: fraction of scenarios that passed
 - `results: list[ScenarioResult]`: per-scenario detail
 - `print_report()`: pretty-print to console
+- `print_report(group_by="Category")`: append grouped pass-rate table when scenarios use `.with_tags(["Category:..."])`
+- `group_by("Category")`: `GroupedSuiteResult` with per-tag bucket stats
+- `to_junit_xml()`: JUnit export for CI
 - `model_dump_json()`: serialize to JSON for CI / persistence
 
 ## Built-in LLM-based Checks

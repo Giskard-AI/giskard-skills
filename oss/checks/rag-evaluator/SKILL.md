@@ -57,6 +57,8 @@ pip install giskard-checks
 
 The generated code imports from `giskard.checks` and `giskard.agents.generators` and will fail at import time without this package. Do not skip.
 
+**Keep skills aligned with the library:** API details live in [giskard-oss](https://github.com/Giskard-AI/giskard-oss). When unsure about signatures or new checks, read `../../references/giskard-oss-sync.md` and the library's `giskard/checks/__init__.py` exports.
+
 ### Step 1: Map User Inputs → Available Eval Dimensions
 
 What the user has determines what you can evaluate. Use this mapping:

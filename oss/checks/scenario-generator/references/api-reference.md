@@ -2,6 +2,8 @@
 
 Complete API reference for generating test scenarios. All public classes are importable from `giskard.checks`.
 
+**Source of truth:** [giskard-oss](https://github.com/Giskard-AI/giskard-oss) `libs/giskard-checks/src/giskard/checks/__init__.py`. When in doubt, read the library — see `../../references/giskard-oss-sync.md` for sync steps.
+
 ## Imports
 
 ```python
@@ -25,9 +27,18 @@ from giskard.checks import (
 
 # LLM-based checks
 from giskard.checks import (
-    LLMJudge, Conformity, Groundedness, AnswerRelevance,
+    LLMJudge, Conformity, Groundedness, AnswerRelevance, Toxicity,
     BaseLLMCheck, LLMCheckResult,
 )
+
+# Additional builtins
+from giskard.checks import JsonValid, RegoPolicy
+
+# Debugging
+from giskard.checks import WithSpy
+
+# Reporting
+from giskard.checks import GroupedSuiteResult, GroupStats
 
 # Generators and configuration
 from giskard.checks import UserSimulator, set_default_generator, get_default_generator
@@ -92,6 +103,8 @@ Scenario(
     target: Provider | NotProvided = NOT_PROVIDED,  # Optional: default SUT
 )
 ```
+
+Tag scenarios for grouped reporting: `.with_tags(["Category:PromptInjection", "Severity:High"])`. Keys before `:` are used with `result.print_report(group_by="Category")`.
 
 ### Methods
 
@@ -191,6 +204,8 @@ result.results             # list[ScenarioResult]
 result.duration_ms         # int
 result.failures_and_errors # list[ScenarioResult] -- only failed/errored scenarios
 result.print_report()      # Pretty-print all results (uses rich)
+result.print_report(group_by="Category")  # Append grouped pass-rate table by scenario tag key
+result.group_by("Category")  # GroupedSuiteResult with per-bucket stats
 result.to_junit_xml()      # Export as JUnit XML string
 result.to_junit_xml("results.xml")  # Export to file
 ```
@@ -364,6 +379,18 @@ Conformity(
 Conformity(
     rule="The response must address the user's question and stay on-topic.",
     name="stays_on_topic",
+)
+```
+
+### Toxicity
+
+Built-in LLM judge for harmful content. Prefer over custom keyword `FnCheck` for safety scenarios.
+
+```python
+Toxicity(
+    name="no_toxic_output",
+    categories=["hate_speech", "harassment", "threats"],  # optional; defaults to all six categories
+    output_key="trace.last.outputs",
 )
 ```
 
