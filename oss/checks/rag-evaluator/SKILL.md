@@ -4,7 +4,7 @@ description: Generates tailored giskard.checks evaluation suites for RAG (Retrie
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.0.0
+  version: 1.1.0
   category: ai-testing
   tags: [giskard, checks, rag, evaluation, groundedness, retrieval]
 ---
