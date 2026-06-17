@@ -19,6 +19,8 @@ This skill is **quality-focused**. It builds evals that detect hallucination, un
 
 Before generating ANY code, you MUST have enough context. RAG eval depends heavily on what the user has. A black-box agent has very different evaluations possible than an agent + retriever + KB. Do NOT generate evals from a vague description.
 
+**If the user has not provided background** (domain, tools, scope, output shape), **call the agent first** and ask discovery questions — especially about its **purpose, tools, and boundaries**. See [`../../references/agent-discovery.md`](../../references/agent-discovery.md). Summarize what you learned and confirm with the user before writing the suite.
+
 ### Required (must have)
 
 1. **Agent description**: What does the agent do? What kind of questions does it answer? What domain? (e.g., "internal docs Q&A bot", "customer support over our help center", "research assistant over scientific papers")
@@ -35,9 +37,10 @@ The skill is **adaptive**: it expands the eval based on what the user provides. 
 
 ### How to Ask
 
-Ask only for what you don't already have. Be specific about *why* you need it. Example phrasing:
+Ask only for what you don't already have. If key background is missing, **invoke the agent** with discovery prompts (tools, domain, refusal behavior) before asking the user — see [`../../references/agent-discovery.md`](../../references/agent-discovery.md). Be specific about *why* you need anything you still ask for. Example phrasing:
 
 - "What does your agent answer questions about? A short description helps me generate realistic test questions."
+- "If I don't have that yet — can I call your agent with a few discovery questions about its role and tools?"
 - "What's the function I should call? `agent(query) -> answer`, or does it return something richer like a dict with sources?"
 - "Do you have a knowledge base I can sample from? Even a folder of `.md` / `.txt` / `.pdf` files, or just a few sample chunks. If you do, I'll generate synthetic test questions from it. If not, you'll need to provide questions yourself."
 - "Is your retriever exposed as a separate function? If yes, I can evaluate retrieval quality on its own; if no, I'll evaluate end-to-end only."
@@ -270,6 +273,9 @@ Consult `references/examples.md` for full worked code:
 - Multi-turn RAG (follow-up questions referring to prior turns)
 
 ## Troubleshooting
+
+### User provides only a callable (black box)
+Call the agent first with discovery prompts from [`../../references/agent-discovery.md`](../../references/agent-discovery.md): purpose, data sources, tools, out-of-scope behavior, and sample output shape. Use that to choose eval dimensions and whether groundedness is feasible.
 
 ### User says "I don't have a knowledge base, just an agent"
 You can still build a useful eval. Cover answer relevance, refusal quality, robustness to paraphrase, and any behavioral rules the user can articulate (e.g., "must cite sources", "must decline medical advice"). Be honest with the user that without a KB you cannot evaluate groundedness. It's the single most important RAG check, and skipping it is a real gap.
