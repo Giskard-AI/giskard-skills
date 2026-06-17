@@ -126,7 +126,8 @@ The reference also shows three scoring strategies (Strict, Cosine, LLM-judged) t
 
 **Checks to use**:
 - `RegexMatching`: does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)?
-- `FnCheck`: extract cited IDs from the answer and check they exist in the KB
+- `FnCheck`: extract cited IDs from the answer and verify they exist in the KB (structural)
+- `Conformity` with rule that cited claims must be supported by cited sources
 - `LLMJudge`: compare each cited claim against its cited source
 
 **Test patterns**:

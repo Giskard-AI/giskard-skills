@@ -85,24 +85,28 @@ Pick the largest applicable subset of dimensions from `references/rag-eval-dimen
 
 ### Step 3: Pick Checks (cheap → expensive)
 
+**Read `../../references/check-selection.md` before picking checks.** Prefer built-in judges over custom `FnCheck`. Use `Conformity` for behavioral rules (refusal, citation policy, tone), `Groundedness` for factual support, `AnswerRelevance` for topical fit, and `LLMJudge` for multi-criteria correctness. Reserve `FnCheck` for retrieval metrics with labelled doc IDs, parsed structural IDs, or numeric trace metadata — not keyword heuristics for quality or refusal.
+
 Layer checks so failures surface fast and cheaply:
 
-1. **Rule-based** sanity checks (free, deterministic):
-   - `StringMatching` / `RegexMatching`: does the answer contain expected keywords or citation markers? Does it refuse with phrases like "I don't have information"?
-   - `FnCheck`: custom logic (e.g., "answer is non-empty", "answer mentions at least one source"). For retrieval-quality metrics (Recall@K, Precision@K, MRR, NDCG@K, HitRate@K, InfAP), see `references/retrieval-metrics.md` for ready-to-paste implementations.
+1. **Rule-based gates** (free, deterministic):
+   - `StringMatching` / `RegexMatching`: citation markers, format patterns
    - `Equals`, `LesserThan`, etc.: numerical / structured assertions
+   - `FnCheck`: only structural/programmatic checks (see `references/retrieval-metrics.md` for Recall@K, Precision@K, MRR, NDCG@K)
 
 2. **Semantic** (cheap, embedding-based):
    - `SemanticSimilarity`: answer matches the reference answer in meaning (not exact words)
 
-3. **LLM judges** (most flexible, slowest):
-   - `Groundedness`: answer is supported by the provided context (the most important RAG check)
+3. **General judges** (preferred for RAG quality):
+   - `Groundedness`: answer supported by context (most important RAG check)
    - `AnswerRelevance`: answer addresses the question
-   - `Conformity`: answer follows a stated rule (e.g., "must cite at least one source", "must decline if information is not in the context")
-   - `LLMJudge`: bespoke judgment with a Jinja2 prompt for nuanced criteria
+   - `Conformity`: behavioral rules (must cite sources, must decline when unsupported)
+   - `LLMJudge`: gold-answer correctness or nuanced criteria Conformity cannot express in one rule
 
 4. **Composition**:
-   - `AllOf` / `AnyOf` / `Not`: combine checks (e.g., `AnyOf(grounded, declines_politely)` for out-of-scope questions where either grounding OR refusal is acceptable)
+   - `AllOf` / `AnyOf` / `Not` (e.g., `AnyOf(grounded, declines_politely)` for out-of-scope)
+
+Do not duplicate the same intent in `FnCheck` and a judge. If a Conformity rule covers refusal, skip keyword-matching FnChecks.
 
 ### Step 4: Build Scenarios and Suite
 
@@ -113,7 +117,19 @@ Critical RAG-specific patterns:
 - **For groundedness with pre-retrieved context**: Pre-retrieve once per question and pass `context=[...]` directly to `Groundedness`. Do this at scenario construction time.
 - **For out-of-scope questions**: Use `Conformity(rule="When the answer is not in the provided context, the agent must explicitly decline or say it doesn't know.")`. Do NOT use `Groundedness` here, since there's no valid context to be grounded in.
 
-### Step 5: Output the Code
+### Step 5: Draft, Run, and Harden (iteration loop)
+
+First-pass suites are drafts. Follow `../../references/eval-iteration-loop.md`:
+
+1. **Draft** a small suite (5–15 scenarios) from the user's inputs.
+2. **Run** it, `print_report()`, persist `SuiteResult` to JSON.
+3. **Review** failures — agent bug vs judge misfire vs bad test data.
+4. **Refine** judge rules and test cases; do not replace flaky judges with keyword `FnCheck`.
+5. **Re-run** until stable, then expand coverage.
+
+Always tell the user this is iteration 1 and what to tune after the first run.
+
+### Step 6: Output the Code
 
 The output format is **adaptive**:
 
@@ -218,7 +234,7 @@ These rules exist because subtle violations cause silent failures. Follow them e
 - For `AnswerRelevance`: defaults to `question_key="trace.last.inputs"` and `answer_key="trace.last.outputs"`. Don't override unless the user's I/O shape is non-standard.
 - For `Conformity`: the `rule` is plain text, NOT a Jinja2 template. Write rules as a clear standalone sentence.
 - For `LLMJudge`: the `prompt` IS a Jinja2 template. Use `{{ trace.last.inputs }}` and `{{ trace.last.outputs }}` to reference the question and answer.
-- For `FnCheck`: the function receives a `Trace` object, not the output string. Use `lambda trace: ... trace.last.outputs ...` to access the response.
+- For `FnCheck`: use only for structural/programmatic assertions (retrieval metrics, parsed IDs, trace metadata). For behavioral, safety, or semantic checks, use `Conformity`, `Groundedness`, `AnswerRelevance`, or `LLMJudge` instead. See `../../references/check-selection.md`.
 - Use `trace.last.outputs` to reference the latest answer; `trace.last.inputs` for the latest question.
 - Add a `# REPLACE: ...` comment wherever the user is expected to customize.
 - For scripts: persist the full `SuiteResult` to JSON after `print_report()` (e.g., `Path("results.json").write_text(result.model_dump_json(indent=2))`). This makes results inspectable and CI-friendly.
@@ -232,7 +248,7 @@ When you respond, structure your output like this:
 2. **Test data** (synthesized or loaded): Either the synthetic Q&A you generated (with question types labelled), or a confirmation that you'll load the user's set.
 3. **Complete code**: A single runnable artifact, Python script *or* notebook cells, per the adaptive rule above.
 4. **What each scenario tests**: A one-line comment per scenario describing the dimension it covers. Helps the user trim or extend.
-5. **Next steps**: How to run, what to look at first in the report, and what eval gaps remain (e.g., "no retrieval-quality eval because retriever isn't exposed").
+5. **Next steps**: How to run, where results are saved, what to look at first in the report, how to iterate (refine judges → re-run → expand), and what eval gaps remain (e.g., "no retrieval-quality eval because retriever isn't exposed").
 
 ## Performance Notes
 

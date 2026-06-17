@@ -82,29 +82,42 @@ For each attack surface, design scenarios with escalating sophistication:
 
 ### Step 3: Select Appropriate Checks
 
+**Read `../../references/check-selection.md` before picking checks.** Default to general judges (`Conformity`, `Groundedness`, `AnswerRelevance`, `LLMJudge`) for behavioral, safety, and semantic assertions. Reserve `FnCheck` for deterministic structural checks only (parsed IDs, retrieval metrics, numeric trace metadata) — not keyword heuristics for refusal, safety, or topicality.
+
 Layer checks from cheap to expensive:
 
-1. **Rule-based checks first** (fast, deterministic, free):
-   - `FnCheck` for custom boolean logic
-   - `StringMatching` for keyword presence/absence
-   - `RegexMatching` for pattern validation
+1. **Rule-based gates** (fast, deterministic, free):
+   - `StringMatching` / `RegexMatching` for citation markers, format patterns, known toxic strings
    - `Equals`, `NotEquals` for exact comparisons
+   - `FnCheck` only when no judge can express the assertion (see check-selection.md)
 
 2. **Semantic checks** (moderate cost):
    - `SemanticSimilarity` for meaning comparison
 
-3. **LLM-based checks last** (flexible, non-deterministic):
-   - `Conformity` for evaluating whether output conforms to a stated rule (plain text, no Jinja2)
-   - `Groundedness` for factual grounding against provided context documents
-   - `AnswerRelevance` for evaluating whether the answer is relevant to the question
-   - `LLMJudge` for nuanced evaluation with custom Jinja2 prompt templates
+3. **General judges** (preferred for most adversarial intent):
+   - `Conformity` for behavioral rules — prompt injection resistance, scope boundaries, refusal, tone (plain text rule, not Jinja2)
+   - `Groundedness` when factual grounding against context matters
+   - `AnswerRelevance` for topical fit
+   - `LLMJudge` when one rule is not enough or you need structured reasoning in the prompt
 
-4. **Composition checks** (combine other checks):
-   - `AllOf` to require all inner checks pass (short-circuits on first failure)
-   - `AnyOf` to require at least one inner check passes
-   - `Not` to invert a check result (pass becomes fail, fail becomes pass)
+4. **Composition** (combine checks):
+   - `AllOf` / `AnyOf` / `Not`
 
-### Step 4: Generate Python Code
+Do not duplicate the same intent in `FnCheck` and `Conformity`. If you wrote a Conformity rule, skip the parallel keyword FnCheck.
+
+### Step 4: Draft, Run, and Harden (iteration loop)
+
+Do not treat the first generated suite as final. Follow `../../references/eval-iteration-loop.md`:
+
+1. **Draft** 5–15 scenarios covering the user's top fears (direct, indirect, multi-turn).
+2. **Run** the suite, `print_report()`, persist `SuiteResult` to JSON.
+3. **Review** failures with the user — classify agent bugs vs flaky judges vs bad scenarios.
+4. **Refine** judge rules and scenarios; do not paper over failures with hyper-specific `FnCheck` lambdas.
+5. **Re-run** until the suite is stable, then expand coverage.
+
+After iteration 1, tell the user what to tune in the report and what scenarios to add next.
+
+### Step 5: Generate Python Code
 
 Output a complete, runnable Python code snippet. Consult `references/api-reference.md` for exact API syntax and `references/examples.md` for full worked examples.
 
@@ -159,7 +172,7 @@ print(result)  # Notebook usage: display SuiteResult object
 - For `.interact()`: only pass `inputs` (string, callable, or UserSimulator). Do NOT pass `outputs`.
 - For multi-turn with trace: `inputs=lambda trace: ...` receives the full conversation history. Only use this when the input actually depends on previous outputs -- if the input is a static string, pass it directly (e.g., `inputs="some text"` not `inputs=lambda trace: "some text"`)
 - For UserSimulator: pass as `inputs=user_simulator_instance` in `.interact()`. The parameter is `max_steps` (not `max_turns`).
-- `FnCheck(fn=...)` receives a `Trace` object, NOT the output string. Use `lambda trace: ... trace.last.outputs ...` to access the response.
+- `FnCheck(fn=...)` receives a `Trace` object, NOT the output string. Use `lambda trace: ... trace.last.outputs ...` to access the response. Prefer `Conformity` / `LLMJudge` for behavioral checks — see `../../references/check-selection.md`.
 - Use `trace.last.outputs` as the default key for checks referencing the latest response
 - Use `trace.last.inputs` to reference the latest input
 - Use `trace.interactions[0].outputs` to reference specific turns
@@ -175,8 +188,9 @@ print(result)  # Notebook usage: display SuiteResult object
 Always output:
 
 1. **Brief analysis** (2-3 sentences): What attack surfaces you identified and your approach
-2. **Complete Python code**: A single, self-contained script with all scenarios in a Suite
+2. **Complete Python code**: A single, self-contained script with all scenarios in a Suite (iteration-1 draft, 5–15 scenarios)
 3. **What each scenario tests**: A brief inline comment or summary explaining the adversarial intent
+4. **Iteration next steps**: How to run, where results are saved, what failures to look for first, and how to refine judges before adding more scenarios (see eval-iteration-loop.md)
 
 ## Performance Notes
 
