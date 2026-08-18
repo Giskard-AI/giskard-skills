@@ -1,6 +1,12 @@
 ---
 name: giskard-to-collibra
 description: Export Giskard scan results into Collibra AI Governance. Use this whenever the user asks to export, push, sync, or import a Giskard scan, agent, or project (e.g. "Zephyr") into Collibra, or to update Collibra AI Governance assets, monitors, or Quality-tab metrics from Giskard. Also use it when the user asks to "retrieve the latest scan of a project and send it to Collibra", even if they do not say the word "export".
+license: Apache-2.0
+metadata:
+  author: Giskard
+  version: 1.0.0
+  category: integration
+  tags: [giskard, collibra, ai-governance, scan, vulnerability, export, metrics]
 ---
 
 # Giskard to Collibra export
