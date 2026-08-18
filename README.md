@@ -26,6 +26,11 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
       <td><code>npx skills add Giskard-AI/giskard-skills --skill rag-evaluator</code></td>
       <td>Use when a user wants to evaluate a RAG (Retrieval-Augmented Generation) system or a Q&amp;A bot grounded in documents. Covers groundedness, answer relevance, retrieval quality, hallucination, citation accuracy, and out-of-scope refusal. Triggers on phrases like "evaluate my RAG", "test my retrieval", "check groundedness", "build a RAG eval suite", or "test if my agent hallucinates". Quality-focused; for adversarial / red-teaming use <code>scenario-generator</code> instead.</td>
     </tr>
+    <tr>
+      <td>giskard-to-collibra</td>
+      <td><code>npx skills add Giskard-AI/giskard-skills --skill giskard-to-collibra</code></td>
+      <td>Use when a user wants to export, push, or sync Giskard Hub scan results into Collibra AI Governance. Creates or updates the AI Agent asset hierarchy in Collibra (re-runs are idempotent) and pushes per-probe pass/fail metrics to the Quality tab. Triggers on phrases like "export my scan to Collibra", "push results to Collibra", or "send the latest scan of this project to Collibra". Requires a Collibra instance with AI Governance.</td>
+    </tr>
   </tbody>
 </table>
 
