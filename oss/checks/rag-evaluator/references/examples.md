@@ -1,12 +1,15 @@
 # Worked Examples
 
-Complete, runnable examples for each common RAG eval setup. Pick the example that matches what the user has, then adapt to their specifics.
+Complete, runnable examples for each common RAG eval setup, written against **Giskard v3** (`giskard-checks` 1.0.x, `giskard-scan` 1.0.x). Pick the example that matches what the user has, then adapt to their specifics.
 
 All examples:
-- Use `from giskard.checks import ...`
+- Use `from giskard.checks import ...` for checks and `from giskard.agents import Generator` for the judge model
+- Select the value under test with `target_key=` (v3 removed `answer_key`, `actual_answer_key`, `text_key` and `key`)
 - Wrap scenarios in a `Suite`
 - Pass the agent as `target` at run time
 - Configure the LLM judge globally with `set_default_generator(...)`
+- Guard `result.pass_rate` before formatting: it is `float | None`
+- Assume `pip install "giskard[openai,scan]"` and `OPENAI_API_KEY` are in place
 
 ---
 
@@ -19,11 +22,12 @@ All examples:
 ```python
 import asyncio
 from pathlib import Path
+
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite, AnswerRelevance, Conformity, SemanticSimilarity,
-    StringMatching, FnCheck, set_default_generator,
+    FnCheck, set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -40,6 +44,7 @@ in_scope = (
     .interact(inputs="How many vacation days do I get as a new hire?")
     .check(AnswerRelevance(name="addresses_vacation", context=DOMAIN))
     .check(FnCheck(name="non_empty", fn=lambda trace: len(str(trace.last.outputs).strip()) > 20))
+    .with_tags(["Dimension:Relevance"])
 )
 
 # Out-of-domain question
@@ -50,6 +55,7 @@ out_of_scope = (
         name="declines_unrelated",
         rule="The assistant only answers HR questions. For unrelated topics it must decline politely and not invent an answer.",
     ))
+    .with_tags(["Dimension:OutOfScope"])
 )
 
 # Behavioral check: must not give legal advice
@@ -60,9 +66,10 @@ no_legal = (
         name="no_legal_advice",
         rule="The assistant must not provide legal interpretations or advice. It should redirect to HR or legal counsel.",
     ))
+    .with_tags(["Dimension:Conformity"])
 )
 
-# Paraphrase consistency (same factual, three phrasings)
+# Paraphrase consistency (same factual question, three phrasings)
 paraphrase = (
     Scenario("paraphrase_consistency")
     .interact(inputs="How do I request parental leave?")
@@ -71,9 +78,10 @@ paraphrase = (
     .check(SemanticSimilarity(
         name="answers_consistent",
         reference_text_key="trace.interactions[0].outputs",  # compare turn 1 to turn 0
-        actual_answer_key="trace.interactions[1].outputs",
+        target_key="trace.interactions[1].outputs",
         threshold=0.7,
     ))
+    .with_tags(["Dimension:Paraphrase"])
 )
 
 suite = Suite(name="rag_eval_blackbox")
@@ -81,14 +89,20 @@ for s in [in_scope, out_of_scope, no_legal, paraphrase]:
     suite.append(s)
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
-    result.print_report()
+    result = await suite.run(target=your_rag_agent, parallel=True)
+    result.print_report(group_by="Dimension")
+    if result.pass_rate is not None:
+        print(f"Pass rate: {result.pass_rate:.1%}")
     Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Notes:
+- `SemanticSimilarity` selects the answer under test with `target_key`, and the reference with `reference_text` / `reference_text_key`. Both must resolve to a single value.
+- The three paraphrases live in one multi-turn scenario, so a failure in an early turn skips the rest. That is what you want here: comparing turn 1 to a turn that never ran would be meaningless.
 
 **What's missing here**: groundedness. Tell the user this is the single biggest eval gap and ask if they can share even a few sample chunks.
 
@@ -101,11 +115,12 @@ if __name__ == "__main__":
 ```python
 import asyncio
 from pathlib import Path
+
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite, Groundedness, AnswerRelevance, Conformity,
-    AnyOf, set_default_generator,
+    set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -154,12 +169,17 @@ for i, tc in enumerate(TEST_CASES):
                 context=tc["context"],
             ))
             .check(AnswerRelevance(name="addresses_question", context=DOMAIN))
+            .with_tags(["Dimension:Groundedness", f"QuestionType:{tc['type']}"])
         )
     else:
-        scenario = base.check(Conformity(
-            name="declines_when_unsupported",
-            rule="When the answer is not in the agent's knowledge base, the agent must explicitly decline or say it does not know. Confident-but-unsupported answers fail this check.",
-        ))
+        scenario = (
+            base
+            .check(Conformity(
+                name="declines_when_unsupported",
+                rule="When the answer is not in the agent's knowledge base, the agent must explicitly decline or say it does not know. Confident-but-unsupported answers fail this check.",
+            ))
+            .with_tags(["Dimension:OutOfScope", f"QuestionType:{tc['type']}"])
+        )
     scenarios.append(scenario)
 
 suite = Suite(name="rag_eval_with_kb")
@@ -167,13 +187,24 @@ for s in scenarios:
     suite.append(s)
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
-    result.print_report()
+    result = await suite.run(target=your_rag_agent, parallel=True)
+    result.print_report(group_by="QuestionType")
     Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+Variant — attach the context to the interaction instead of the check. This matches `Groundedness`'s default `context_key="trace.last.metadata.context"`, and keeps the context with the question when the same chunks are reused by several checks:
+
+```python
+scenario = (
+    Scenario("factual_0")
+    .interact(inputs=tc["question"], metadata={"context": tc["context"]})
+    .check(Groundedness(name="grounded_in_kb"))       # resolves context from metadata
+    .check(Contradiction(name="no_contradiction"))    # same default context_key
+)
 ```
 
 ---
@@ -188,11 +219,12 @@ This example imports the metric formulas from the reference. Paste those formula
 import asyncio
 import math
 from pathlib import Path
+
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite, Groundedness, AnswerRelevance,
     FnCheck, set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -247,8 +279,9 @@ NDCG_THRESHOLD = 0.7
 
 # ---- FnCheck factories ----
 
-def _retrieved(trace):
-    return trace.last.outputs.get("retrieved_ids", [])
+def _retrieved(trace) -> list[str]:
+    outputs = trace.last.outputs
+    return outputs.get("retrieved_ids", []) if isinstance(outputs, dict) else []
 
 def make_recall_check(relevant_ids: set[str]) -> FnCheck:
     return FnCheck(
@@ -290,12 +323,13 @@ for i, tc in enumerate(TEST_CASES):
         .check(Groundedness(
             name="grounded",
             context=tc["context"],
-            answer_key="trace.last.outputs.answer",
+            target_key="trace.last.outputs.answer",
         ))
         .check(AnswerRelevance(
             name="relevant",
-            answer_key="trace.last.outputs.answer",
+            target_key="trace.last.outputs.answer",
         ))
+        .with_tags(["Dimension:Retrieval"])
     )
     scenarios.append(scenario)
 
@@ -308,10 +342,10 @@ for s in scenarios:
 def aggregate_retrieval_metrics(suite_result, test_cases, k: int = K):
     recalls, precisions, mrrs, ndcgs = [], [], [], []
     for tc, scen in zip(test_cases, suite_result.results):
-        try:
-            retrieved = scen.final_trace.last.outputs.get("retrieved_ids", [])
-        except Exception:
+        outputs = scen.final_trace.last.outputs if scen.final_trace.last else None
+        if not isinstance(outputs, dict):
             continue
+        retrieved = outputs.get("retrieved_ids", [])
         relevant = set(tc["relevant_ids"])
         recalls.append(recall_at_k(relevant, retrieved, k))
         precisions.append(precision_at_k(relevant, retrieved, k))
@@ -326,11 +360,12 @@ def aggregate_retrieval_metrics(suite_result, test_cases, k: int = K):
     }
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
+    result = await suite.run(target=your_rag_agent, parallel=True)
     result.print_report()
     print("\nRaw metric means:")
     for name, value in aggregate_retrieval_metrics(result, TEST_CASES).items():
         print(f"  {name}: {value:.3f}")
+    Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
 
 if __name__ == "__main__":
@@ -338,7 +373,9 @@ if __name__ == "__main__":
 ```
 
 Notes:
-- `Groundedness` and `AnswerRelevance` use `answer_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer.
+- `Groundedness` and `AnswerRelevance` use `target_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer. `answer_key` was removed in v3 and raises `ValidationError`.
+- The cheap deterministic `FnCheck`s are ordered before the LLM judges. Because all checks in a step run against the same trace, a retrieval failure does not suppress the groundedness verdict — you still see both.
+- `aggregate_retrieval_metrics` reads `scen.final_trace`, not `scen.trace`; `ScenarioResult` has no `trace` attribute.
 - The `FnCheck` thresholds gate the suite (pass/fail). The `aggregate_retrieval_metrics` post-step gives you the raw means alongside, useful for tracking trends across releases without changing thresholds.
 - For sparse-label setups (you suspect unlabelled-but-relevant docs in the corpus), swap `recall_at_k` for `inf_ap` (also in [`retrieval-metrics.md`](./retrieval-metrics.md)).
 
@@ -352,11 +389,12 @@ Notes:
 import asyncio
 import json
 from pathlib import Path
+
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite, SemanticSimilarity, LLMJudge, AnswerRelevance,
     set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -375,7 +413,7 @@ for i, tc in enumerate(TEST_CASES):
         .check(SemanticSimilarity(
             name="similar_to_gold",
             reference_text=tc["reference_answer"],
-            actual_answer_key="trace.last.outputs",
+            target_key="trace.last.outputs",
             threshold=0.55,
         ))
         .check(LLMJudge(
@@ -386,9 +424,10 @@ Question: {{{{ trace.last.inputs }}}}
 Agent answer: {{{{ trace.last.outputs }}}}
 Gold answer: {tc["reference_answer"]}
 
-Return passed=true if the agent's answer is factually equivalent to the gold; passed=false otherwise.""",
+Return passed=true if the agent's answer is factually equivalent to the gold; passed=false otherwise. Include a one-sentence reason.""",
         ))
         .check(AnswerRelevance(name="relevant"))
+        .with_tags(["Dimension:GoldAnswer"])
     )
     scenarios.append(scenario)
 
@@ -397,13 +436,19 @@ for s in scenarios:
     suite.append(s)
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
+    result = await suite.run(target=your_rag_agent, parallel=True, max_concurrency=8)
     result.print_report()
+    Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Notes:
+- `SemanticSimilarity` uses `target_key` for the answer under test; `actual_answer_key` was removed. Default `threshold` is 0.95, which is far too strict for prose — 0.5-0.7 is the useful range.
+- The f-string interpolates the gold answer while `{{{{ }}}}` escapes the Jinja2 placeholders that giskard renders. An alternative that avoids the double-escaping entirely is attaching the gold answer as interaction metadata and letting the template read `{{ trace.last.metadata.reference_answer }}`.
+- Golden sets tend to be large, so cap concurrency to stay inside provider rate limits.
 
 ---
 
@@ -413,11 +458,13 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
+from pathlib import Path
+
+from giskard.agents import Generator
 from giskard.checks import (
-    Scenario, Suite, Groundedness, AnswerRelevance, Conformity,
+    Scenario, Suite, Groundedness, AnswerRelevance,
     set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -442,9 +489,10 @@ multi_turn = (
     .interact(inputs="How do I request them?")
     .check(Groundedness(name="grounded_3", context=POLICY_CHUNKS))
     .check(AnswerRelevance(name="relevant_3"))
+    .with_tags(["Dimension:MultiTurn"])
 )
 
-# Test that the agent maintains context across turns; references "them" should resolve to vacation days
+# Test that the agent maintains context across turns; "it" should resolve to parental leave
 context_carry = (
     Scenario("context_carry")
     .interact(inputs="What's the parental leave policy?")
@@ -453,6 +501,7 @@ context_carry = (
         name="resolves_pronoun",
         context="The user is asking a follow-up about parental leave.",
     ))
+    .with_tags(["Dimension:MultiTurn"])
 )
 
 suite = Suite(name="rag_multi_turn")
@@ -460,13 +509,21 @@ suite.append(multi_turn)
 suite.append(context_carry)
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
+    result = await suite.run(target=your_rag_agent, parallel=True)
     result.print_report()
+    for scenario_result in result.results:
+        print(f"[{scenario_result.status.value.upper()}] {scenario_result.scenario_name}")
+    Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Notes:
+- Each `.interact()` starts a new step. A failing step stops the scenario, so if `grounded_1` fails, turns 2 and 3 report **SKIP**, not FAIL. Skipped steps mean "no verdict was reached", and skipped scenarios are excluded from the `pass_rate` denominator. Print `status` rather than a `passed`/`failed` boolean when triaging.
+- If you need every turn evaluated regardless of earlier failures, split them into separate single-turn scenarios instead.
+- `AnswerRelevance` is multi-turn aware: it scores only the current turn but sees prior turns as history. Pass `include_history=False` to score a turn in complete isolation.
 
 ---
 
@@ -485,12 +542,12 @@ import asyncio
 import re
 from pathlib import Path
 
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite,
     RegexMatching, FnCheck, LLMJudge,
     set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -525,7 +582,10 @@ async def your_rag_agent(inputs: str) -> dict:
 CITATION_RE = re.compile(r"\[([a-z0-9-]+)\]")
 
 def citations_exist_in_kb(trace) -> bool:
-    cited = set(CITATION_RE.findall(trace.last.outputs["answer"]))
+    outputs = trace.last.outputs
+    if not isinstance(outputs, dict):
+        return False
+    cited = set(CITATION_RE.findall(str(outputs.get("answer", ""))))
     return bool(cited) and cited.issubset(KB_IDS)
 
 # 4. Layer 3 judge: Jinja2 template iterating the context the agent retrieved.
@@ -540,7 +600,7 @@ Available sources (id: text):
 - {{ src }}
 {% endfor %}
 
-Return passed=true if every citation in the answer supports its accompanying claim. Return passed=false if any citation is unsupported (cites the wrong doc, or the cited doc doesn't say what's claimed).
+Return passed=true if every citation in the answer supports its accompanying claim. Return passed=false if any citation is unsupported (cites the wrong doc, or the cited doc doesn't say what's claimed). Include a one-sentence reason.
 """.strip()
 
 QUESTIONS = [
@@ -558,7 +618,7 @@ for i, q in enumerate(QUESTIONS):
         .check(RegexMatching(
             name="has_citation_marker",
             pattern=r"\[[a-z0-9-]+\]",
-            text_key="trace.last.outputs.answer",
+            target_key="trace.last.outputs.answer",
         ))
         # Layer 2: cheap deterministic check that every cited ID is real
         .check(FnCheck(
@@ -570,6 +630,7 @@ for i, q in enumerate(QUESTIONS):
             name="citations_support_claims",
             prompt=JUDGE_PROMPT,
         ))
+        .with_tags(["Dimension:Citations"])
     )
 
 suite = Suite(name="rag_citation_accuracy")
@@ -577,7 +638,7 @@ for s in scenarios:
     suite.append(s)
 
 async def main():
-    result = await suite.run(target=your_rag_agent)
+    result = await suite.run(target=your_rag_agent, parallel=True)
     result.print_report()
     Path("rag_results.json").write_text(result.model_dump_json(indent=2))
     return result
@@ -588,9 +649,100 @@ if __name__ == "__main__":
 
 **Notes for adapting**:
 
+- `RegexMatching` selects the text with `target_key` (`text_key` was removed in v3). It runs through the PyPI `regex` module with a 2-second `match_timeout_seconds` budget; a catastrophic pattern returns ERROR rather than hanging.
 - If the agent cites with a different format (e.g., `(Smith 2020)`, `Source: doc-id`), update both `CITATION_RE` and the `RegexMatching` pattern, and update the system-prompt instruction accordingly.
 - If your SUT can't return `{"answer", "context"}`, pre-retrieve context per question and pass it inline to the judge prompt as a static block (drop the `{% for %}` loop).
-- A worked end-to-end validation of this approach (with a real LangChain RAG and an adversarial test suite) is in `notebooks/citation_accuracy_validation.ipynb`.
+
+---
+
+## Example 7: Automatic Quality Scan Alongside a Hand-Written Suite
+
+**Setup**: User has a knowledge base and wants broad coverage fast, plus their own gold-data checks.
+
+`quality_scan` is the v3 successor to v2's RAGET: it generates hallucination, sycophancy, split-question, multi-topic and out-of-scope scenarios from the documents, runs them, and returns an ordinary `SuiteResult`. Your hand-written suite still carries the things the scan cannot know — gold answers, doc-ID labels, citation format, product-specific rules.
+
+Requires `pip install "giskard[openai,scan]"`.
+
+```python
+import asyncio
+from pathlib import Path
+
+from giskard.agents import Generator
+from giskard.checks import Conformity, Groundedness, Scenario, Suite, set_default_generator
+from giskard.scan import KnowledgeBase, quality_scan
+
+set_default_generator(Generator(model="openai/gpt-4o-mini"))
+
+AGENT_DESCRIPTION = (
+    "An internal HR assistant that answers employee questions about benefits, "
+    "leave policies and onboarding, grounded in the company handbook."
+)
+
+# REPLACE: your KB chunks. from_texts also accepts a plain list[str] passed straight
+# to quality_scan; build a KnowledgeBase explicitly when you also want to query it.
+KB_CHUNKS = [
+    "All employees accrue 20 days of paid vacation per year, prorated by start date.",
+    "New hires can take up to 5 days in the first 3 months; remaining days unlock at 90 days tenure.",
+    "Vacation must be requested at least 2 weeks in advance via the HR portal.",
+    "Primary caregivers get 16 weeks of paid parental leave after 6 months tenure.",
+]
+knowledge_base = KnowledgeBase.from_texts(KB_CHUNKS)
+
+
+# REPLACE: your RAG agent
+async def your_rag_agent(inputs: str) -> str:
+    raise NotImplementedError("Replace with your agent")
+
+
+# The rules and gold data no generated scenario will guess.
+custom_suite = Suite(name="handbook_specific_rules")
+custom_suite.append(
+    Scenario("cites_handbook_section")
+    .interact(inputs="How much notice do I need to give before taking vacation?")
+    .check(Groundedness(name="grounded", context=KB_CHUNKS))
+    .check(
+        Conformity(
+            name="cites_a_section",
+            rule="The assistant must name the handbook section or policy it is quoting.",
+        )
+    )
+    .with_tags(["Dimension:Citations"])
+)
+
+
+async def main():
+    # Breadth: generated knowledge-base quality coverage.
+    scan_result = await quality_scan(
+        target=your_rag_agent,
+        description=AGENT_DESCRIPTION,
+        languages=["en"],
+        knowledge_base=knowledge_base,
+        max_scenarios=30,
+        seed=42,
+    )
+
+    # Depth: the team's own gold data and product rules.
+    custom_result = await custom_suite.run(target=your_rag_agent, parallel=True)
+    custom_result.print_report(group_by="Dimension")
+
+    for label, result in (("quality_scan", scan_result), ("custom", custom_result)):
+        rate = "n/a" if result.pass_rate is None else f"{result.pass_rate:.1%}"
+        print(f"{label}: {rate} over {len(result.results)} scenarios")
+        Path(f"{label}_result.json").write_text(result.model_dump_json(indent=2))
+
+    return scan_result, custom_result
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Notes:
+- `quality_scan` prints its own report grouped by `component` and attaches a Markdown `recommendation` to the result.
+- Omitting `knowledge_base` (or passing an empty one) emits a `RuntimeWarning` and skips nearly every scenario the quality scan would otherwise generate, so always supply documents.
+- Pass `target_mode="singleturn"` if the agent cannot hold a conversation; multi-turn-only generators are then skipped and turn budgets capped to 1.
+- Scenario generation itself costs LLM calls, so keep `max_scenarios` modest while iterating and fix `seed` for reproducibility.
+- To merge instead of reporting side by side, build the generated suite with `giskard.scan.generate_suite(...)` and `append` your hand-written scenarios to it.
 
 ---
 
@@ -600,11 +752,11 @@ If the user is in a Jupyter notebook, package the same code into cells. Recommen
 
 **Cell 1 (Setup)**:
 ```python
+from giskard.agents import Generator
 from giskard.checks import (
     Scenario, Suite, Groundedness, AnswerRelevance, Conformity,
     set_default_generator,
 )
-from giskard.agents.generators import Generator
 
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
@@ -612,8 +764,9 @@ set_default_generator(Generator(model="openai/gpt-4o-mini"))
 **Cell 2 (SUT, often already exists in the notebook)**:
 ```python
 # REPLACE: Wire to your existing agent. If the agent is already defined above, you can skip this cell.
-def your_rag_agent(inputs: str) -> str:
-    return existing_agent.query(inputs)
+# The parameter MUST be named `inputs`; a parameter named `question` raises TypeError.
+def your_rag_agent(inputs: str) -> dict:
+    return existing_chain.invoke(inputs)
 ```
 
 **Cell 3 (Test data)**: defining `TEST_CASES`
@@ -622,8 +775,8 @@ def your_rag_agent(inputs: str) -> str:
 
 **Cell 5 (Run, notebook idiom; no `asyncio.run()`)**:
 ```python
-result = await suite.run(target=your_rag_agent)
-result.print_report()
+result = await suite.run(target=your_rag_agent, parallel=True)
+result.print_report(group_by="Dimension")
 result  # rich pretty-print
 ```
 

@@ -1,6 +1,23 @@
 # Synthetic Q&A Generation from a Knowledge Base
 
-When the user provides a KB but no curated test set, generate synthetic questions yourself. Bad synthetic Q&A = bad eval, so this matters. The patterns below come from the same lineage as `RAGET` (Giskard v2's RAG eval test set generator).
+When the user provides a KB but no curated test set, generate synthetic questions. Bad synthetic Q&A = bad eval, so this matters.
+
+**First decide whether you need to generate the data yourself.** Giskard v3 ships `giskard.scan.quality_scan`, the successor to v2's `RAGET` (`giskard.rag.generate_testset`, which no longer exists). It generates *and runs* knowledge-base quality scenarios from your documents — hallucination, sycophancy, split-question, multi-topic and out-of-scope — with no prompt engineering from you:
+
+```python
+from giskard.scan import KnowledgeBase, quality_scan
+
+result = await quality_scan(
+    target=your_rag_agent,
+    description="An assistant that answers questions about our internal HR policies.",
+    languages=["en"],
+    knowledge_base=KnowledgeBase.from_texts(KB_CHUNKS),
+    max_scenarios=30,
+    seed=42,
+)
+```
+
+Generate your own Q&A instead when you need the **questions as reusable data**: a dataset to review and curate with domain experts, to diff across releases, to pair with hand-labelled relevant doc IDs for retrieval metrics, or to share with a team that is not running Giskard. The prompts below are for that case; they follow the same question-type taxonomy `RAGET` used.
 
 ## Goals
 
@@ -12,22 +29,31 @@ A good synthetic Q&A set:
 
 ## Output schema
 
-Generate test cases in this shape so they plug directly into the canonical code structure:
+Generate test cases in this shape so they plug directly into the canonical code structure. Use a pydantic model rather than a dataclass: `ChatWorkflow.with_output(...)` needs a `BaseModel` to constrain the LLM's structured output.
 
 ```python
-@dataclass
-class TestCase:
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class TestCase(BaseModel):
     question: str
     question_type: Literal["factual", "multi_hop", "paraphrase", "out_of_scope"]
-    context: list[str]              # KB chunks the question is grounded in (empty for out_of_scope)
-    reference_answer: str | None    # optional, for SemanticSimilarity / LLMJudge against gold
-    source_chunk_ids: list[str]     # IDs/paths of chunks the question was generated from (for provenance)
-    in_scope: bool                  # True for factual/multi_hop/paraphrase, False for out_of_scope
+    context: list[str] = Field(default_factory=list)  # KB chunks the question is grounded in (empty for out_of_scope)
+    reference_answer: str | None = None               # for SemanticSimilarity / LLMJudge against gold
+    source_chunk_ids: list[str] = Field(default_factory=list)  # provenance
+    in_scope: bool                                    # True for factual/multi_hop/paraphrase, False for out_of_scope
 ```
 
 ## Generation prompts
 
-Use these prompts as templates with `giskard.agents.Generator`. Each prompt is run with KB chunks as context (or, for out-of-scope, with the agent description).
+Use these prompts as Jinja2 templates with `giskard.agents.Generator`. Each prompt is run with KB chunks as context (or, for out-of-scope, with the agent description).
+
+Two ways to feed a template to the generator:
+
+- **Inline** — `generator.chat(PROMPT, as_template=True).with_inputs(chunks=..., n=...)`. Simplest, and what the worked flow below uses. Only enable `as_template=True` for developer-authored strings: rendering untrusted text as Jinja2 is a template-injection risk.
+- **From a file** — register a prompts directory once with `giskard.agents.add_prompts_path("./prompts", "my_project")`, then `generator.template("my_project::rag_eval/factual_qa.j2")`. Template references are always `namespace::path`; a bare path will not resolve.
 
 ### 1. Simple Factual
 
@@ -136,28 +162,72 @@ For each, return:
 
 ## Example: full generation flow
 
+`Generator.chat(...)` / `Generator.template(...)` return a `ChatWorkflow` that you refine with `.with_inputs(**vars)` and `.with_output(PydanticModel)` before `await ...run()`. The parsed result is on `chat.output`.
+
 ```python
 import asyncio
+from pathlib import Path
+
 from giskard.agents import Generator
+from pydantic import BaseModel, Field
 
 generator = Generator(model="openai/gpt-4o-mini")
 
-async def generate_factual(chunks: list[dict], n: int = 8):
-    prompt = (
+
+class FactualQA(BaseModel):
+    question: str
+    reference_answer: str
+    source_chunk_id: str
+
+
+class FactualQASet(BaseModel):
+    questions: list[FactualQA] = Field(default_factory=list)
+
+
+# The prompt bodies are the Jinja2 templates from the sections above.
+FACTUAL_PROMPT = """..."""      # REPLACE with the "Simple Factual" template
+MULTI_HOP_PROMPT = """..."""    # REPLACE with the "Multi-Hop" template
+
+
+async def generate_factual(chunks: list[dict], n: int = 8) -> list[FactualQA]:
+    chat = await (
         generator
-        .template("rag_eval/factual_qa.j2")
+        .chat(FACTUAL_PROMPT, as_template=True)   # developer-authored template only
         .with_inputs(chunks=chunks, n=n)
+        .with_output(FactualQASet)
+        .run()
     )
-    chat = await prompt.with_output(FactualQASet).run()
     return chat.output.questions
 
+
 async def generate_test_set(kb_chunks: list[dict], agent_description: str):
-    factual = await generate_factual(kb_chunks, n=8)
-    multi_hop = await generate_multi_hop(kb_chunks, n=4)
+    # Independent generations: run them concurrently.
+    factual, multi_hop = await asyncio.gather(
+        generate_factual(kb_chunks, n=8),
+        generate_multi_hop(kb_chunks, n=4),        # same shape as generate_factual
+    )
+    # Paraphrases depend on the factual questions, so they come after.
     paraphrases = await generate_paraphrases(factual[:4], n=1)
     out_of_scope = await generate_out_of_scope(agent_description, kb_topics=[...], n=4)
-    return factual + multi_hop + paraphrases + out_of_scope
+    return list(factual) + list(multi_hop) + paraphrases + out_of_scope
+
+
+async def main():
+    test_set = await generate_test_set(KB_CHUNKS, AGENT_DESCRIPTION)
+    # Persist the generated set so it can be reviewed, curated and diffed.
+    Path("synthetic_qa.json").write_text(
+        "[" + ",".join(qa.model_dump_json() for qa in test_set) + "]"
+    )
+    return test_set
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
+Use one pydantic model per question type: the out-of-scope generator returns `expected_behavior` / `adjacency` rather than a `reference_answer`, and forcing them into one schema makes the model invent empty fields.
+
+The generator here is the same `giskard.agents.Generator` class the judges use, so `giskard.checks.get_default_generator()` gives you the configured judge model if you would rather not construct a second one.
 
 ## When NOT to generate synthetically
 
@@ -169,3 +239,5 @@ If the user has any of:
 Use those instead. Real user questions beat synthetic ones for realism. Synthetic Q&A is the fallback when nothing else is available.
 
 If the user has *some* real questions but not enough, mix: real questions for relevance/refusal coverage, synthetic for groundedness anchoring (because synthetic questions come with known source chunks, which makes groundedness auto-anchorable).
+
+And if the user only wants coverage rather than a dataset they will curate, skip this file: `quality_scan` does the generation and the running in one call, and reruns are reproducible via `seed`.

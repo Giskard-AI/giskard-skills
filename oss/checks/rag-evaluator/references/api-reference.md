@@ -1,38 +1,64 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks/reference.md). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the **Giskard v3** (`giskard-checks` 1.0.x) API most relevant to RAG evaluation, plus the `giskard-scan` quality-scan entry points. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+
+Two conventions carry most of the weight in v3:
+
+1. **The value under test is always selected by `target_key`.** Every other JSONPath selector is named after its static sibling (`context` / `context_key`, `reference_text` / `reference_text_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`).
+2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a removed or misspelled kwarg raises `pydantic.ValidationError` at construction time instead of silently falling back to a default.
+
+## Installation
+
+```bash
+pip install "giskard[openai,scan]"   # or [anthropic,scan], [google,scan], [azure,scan]
+```
+
+Requires Python 3.12+. Bare `giskard-checks` installs the scenario API without any provider SDK, so LLM judges and embedding-backed checks fail at call time. The `scan` extra adds `quality_scan` / `vulnerability_scan`.
 
 ## Imports
 
 ```python
 # Core
 from giskard.checks import (
-    Scenario, Suite, Step,
+    Scenario, Step, Suite,
     Trace, Interact, Interaction, InteractionSpec,
     Check, CheckResult, CheckStatus,
-    Metric,
-    UserSimulator,
+    ScenarioResult, ScenarioStatus,
+    SuiteResult, GroupedSuiteResult, GroupStats,
+    TestCase, TestCaseResult, TestCaseStatus,
+    Metric, Target, resolve,
 )
 
 # Built-in checks (rule-based, semantic)
 from giskard.checks import (
-    Equals, NotEquals, LesserThan, GreaterThan, LesserThanEquals, GreaterEquals,
+    Equals, NotEquals,
+    LessThan, LessThanEquals, GreaterThan, GreaterThanEquals,
     FnCheck, from_fn,
     StringMatching, RegexMatching,
     SemanticSimilarity,
+    JsonValid, Readability,
     AllOf, AnyOf, Not,
 )
 
 # LLM-based checks
 from giskard.checks import (
     LLMJudge, Conformity, Groundedness, AnswerRelevance,
+    Contradiction, Toxicity,
     BaseLLMCheck, LLMCheckResult,
 )
 
-# Generator config
-from giskard.checks import set_default_generator, get_default_generator
-from giskard.agents.generators import Generator
+# Input generators and configuration
+from giskard.checks import (
+    UserSimulator, LLMGenerator, DatasetInputGenerator,
+    set_default_generator, get_default_generator,
+)
+from giskard.agents import Generator
+
+# Automatic knowledge-base quality scan (needs the `scan` extra)
+from giskard.scan import Document, KnowledgeBase, quality_scan, generate_suite
 ```
+
+`Readability` requires `pip install "giskard-checks[readability]"`.
 
 ## Target (System Under Test)
 
@@ -50,12 +76,19 @@ result = await suite.run(target=my_rag_agent)
 
 - `inputs`: the resolved input from `.interact(inputs=...)`
 - `trace`: optional, the full conversation history
-- Other parameter names will NOT be injected. Don't use `query`, `question`, etc.
+- Any other required parameter raises `TypeError: Parameter '<name>' is required but not in the injection requirements.` when the `Interact` is built. Wrap the user's function rather than passing it directly:
+
+```python
+def my_rag_agent(inputs: str) -> dict:
+    return qa_chain.invoke({"question": inputs})
+```
 
 **Variants**:
 
-- **Async**: `async def my_agent(inputs):` — required when the underlying SDK exposes an async API.
-- **Structured output** (for dynamic groundedness): return `{"answer": "...", "context": [...]}`. Reference the fields via `trace.last.outputs.answer` and `trace.last.outputs.context` in checks.
+- **Async**: `async def my_agent(inputs):` — required when the underlying SDK exposes an async API. A sync target that internally calls `asyncio.run()` fails with `RuntimeError: asyncio.run() cannot be called from a running event loop`, because the runner already owns the loop.
+- **Structured output** (for dynamic groundedness): return `{"answer": "...", "context": [...]}`. Reference the fields via `target_key="trace.last.outputs.answer"` and `context_key="trace.last.outputs.context"` in checks.
+
+**Target precedence** (highest to lowest): `suite.run(target=...)` > `Suite(target=...)` > `Scenario(target=...)` / `scenario.with_target(...)`. Prefer `suite.run(target=...)`.
 
 ## Scenario
 
@@ -63,16 +96,20 @@ result = await suite.run(target=my_rag_agent)
 scenario = (
     Scenario("scenario_name")
     .interact(inputs="What is the capital of France?")
-    .check(...)
-    .check(...)
+    .check(Groundedness(name="grounded", context=["Paris is the capital of France."]))
+    .check(AnswerRelevance(name="relevant"))
+    .with_tags(["Dimension:Groundedness"])
 )
 ```
 
 - `Scenario(name)`: name is required and shown in the report
-- `.interact(inputs=...)`: pass a string, callable, generator, or `UserSimulator` (see below). Multiple `.interact()` calls = multi-turn.
-- `.check(check_instance)`: chain as many as needed; all checks in a step run on the same trace, so failures don't suppress later checks. A failing step does skip subsequent steps (steps are split by `.interact()` boundaries).
+- `.interact(inputs=..., outputs=MISSING, metadata=None)`: `inputs` accepts a string, structured value, callable, generator, or `UserSimulator`. Multiple `.interact()` calls = multi-turn. Pass `outputs=` only for pre-recorded interactions. `metadata=` attaches per-interaction data that checks can select (see `Groundedness`).
+- `.check(check_instance)` / `.checks(*check_instances)`: chain as many as needed; all checks in a step run on the same trace, so failures don't suppress later checks in the same step. A failing step does skip subsequent steps (steps are split by `.interact()` boundaries), which surface as SKIP.
+- `.with_tags([...])`: flat `"Key:Value"` labels used by `SuiteResult.group_by()` and `print_report(group_by=...)`. For RAG evals, tagging by dimension (`"Dimension:Groundedness"`, `"Dimension:OutOfScope"`, ...) turns one aggregate pass rate into a per-dimension breakdown.
+- `.with_annotations({...})`: scenario-level data readable as `trace.annotations` and selectable as `trace.annotations.key`.
+- `multiple_runs=N` (constructor): re-execute the whole scenario up to N times with a fresh trace each time, stopping at the first non-passing run. Useful for exposing non-determinism on a specific question.
 
-NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs; they are silently ignored.
+NEVER pass `inputs`, `checks`, or `description` as `Scenario(...)` constructor kwargs. Unlike checks, `Scenario` tolerates unknown keys and silently drops them, so this produces an empty scenario that passes instantly.
 
 ## Suite
 
@@ -81,19 +118,54 @@ suite = Suite(name="my_suite")
 suite.append(scenario)
 suite.append(another_scenario)
 
-result = await suite.run(target=my_agent)
-result.print_report()
-print(f"Pass rate: {result.pass_rate * 100:.1f}%")
+result = await suite.run(target=my_agent, parallel=True)
+result.print_report(group_by="Dimension")
 ```
+
+`Suite.run(...)` parameters:
+
+- `target`: overrides suite-level and scenario-level targets
+- `return_exception=False`: `True` records input-generation failures as ERROR results instead of raising
+- `parallel=False`: `True` runs scenarios concurrently while preserving result order. Use it for any suite with more than a handful of LLM-judged scenarios.
+- `max_concurrency=None`: cap concurrent scenarios when `parallel=True`; `None` starts everything at once, so provider rate limits become the effective cap
+- `verbose=True`: `False` suppresses the live rich progress bar (use in CI)
 
 `SuiteResult` has:
 
-- `pass_rate: float`: fraction of scenarios that passed
+- `pass_rate: float | None`: passed / (total − skipped). **`None`** when nothing was evaluated (empty suite, or all scenarios skipped) — guard before formatting.
+- `passed_count`, `failed_count`, `errored_count`, `skipped_count`: `int`
 - `results: list[ScenarioResult]`: per-scenario detail
-- `print_report()`: pretty-print to console
-- `model_dump_json()`: serialize to JSON for CI / persistence
+- `failures_and_errors: list[ScenarioResult]`: only failed/errored scenarios
+- `recommendation: str | None`: Markdown guidance, populated by `quality_scan`
+- `print_report(console=None, group_by=None)`: pretty-print; `group_by="Dimension"` appends a per-tag-value pass-rate table
+- `group_by("Dimension") -> GroupedSuiteResult`: per-group `GroupStats` (`passed`, `failed`, `errored`, `skipped`, `total`, `non_skipped`, `pass_rate`)
+- `to_junit_xml()` / `to_junit_xml("results.xml")`: JUnit XML for CI dashboards
+- `to_hub_format()`: JSON-serializable Giskard Hub payload
+- `model_dump_json(indent=2)`: full serialization for CI artifacts
+
+```python
+if result.pass_rate is None:
+    print("No scenarios evaluated")
+else:
+    print(f"Pass rate: {result.pass_rate:.1%}")
+```
+
+`ScenarioResult` exposes `scenario_name`, `status`, `passed` / `failed` / `errored` / `skipped`, `final_trace` (**not** `trace`), `steps`, `tags`, `duration_ms`, `runs_executed`, `failures_and_errors`.
+
+## Statuses: PASS, FAIL, ERROR, SKIP
+
+All status enums have four states. ERROR and SKIP mean *no verdict was reached*:
+
+- **ERROR** — the check could not run: a key resolved to nothing, an unsupported comparison, an exception in the target
+- **SKIP** — the check or step was deliberately not evaluated, typically because an earlier step in the scenario failed
+
+Rollups use priority ERROR > FAIL > all-SKIP > PASS, so PASS mixed with SKIP still rolls up to PASS; only an all-SKIP collection becomes SKIP. Skipped scenarios are excluded from the `pass_rate` denominator. Branch on `status` (or the explicit `failed` / `errored` / `skipped` properties) rather than on `not passed`.
 
 ## Built-in LLM-based Checks
+
+All accept an optional `generator=` for a per-check model override, plus `name` and `description`. Always pass `name`.
+
+Every LLM check returns an `LLMCheckResult` with a **required, non-blank `reason`** and a required `passed`. Custom `LLMJudge` prompts must ask for a justification, or the judge call fails validation.
 
 ### Groundedness
 
@@ -108,15 +180,32 @@ Groundedness(
 
 Fields:
 
-- `context: str | list[str] | None`: static context; if set, takes priority over `context_key`
+- `context: str | list[str]`: static context; when set, takes priority over `context_key`
 - `context_key: str`: JSONPath; default `"trace.last.metadata.context"`
-- `answer: str | None`: static answer; usually unused for live SUTs
-- `answer_key: str`: JSONPath; default `"trace.last.outputs"`
+- `answer: str`: static answer; usually unused for live SUTs
+- `target_key: str`: JSONPath to the answer; default `"trace.last.outputs"`
+
+The field selecting the answer is `target_key`. `answer_key` was removed and now raises a `ValidationError`.
 
 **Variants**:
 
-- **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `answer_key="trace.last.outputs.answer"`.
+- **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `target_key="trace.last.outputs.answer"`.
 - **Dynamic context from interaction metadata**: omit `context=` and attach via `.interact(inputs=..., metadata={"context": [...]})` — matches the default `context_key`.
+
+If either key resolves to nothing, the check returns ERROR without spending a judge call. A list value is joined with newlines before it reaches the prompt, so passing `context=[...]` is safe and readable.
+
+### Contradiction
+
+Same inputs as `Groundedness` (`answer` / `target_key`, `context` / `context_key`), but a permissive criterion: omissions and unsupported additions are tolerated, and only statements that **directly conflict** with the context fail.
+
+```python
+Contradiction(
+    name="does_not_contradict_sources",
+    context=["Refunds are available within 30 days of purchase."],
+)
+```
+
+Use it when the agent is expected to add world knowledge on top of retrieval and strict groundedness would flag legitimate elaboration. Pairing `Groundedness` (strict, informational) with `Contradiction` (permissive, gating) is a good way to keep a CI gate stable while still tracking drift.
 
 ### AnswerRelevance
 
@@ -127,16 +216,19 @@ AnswerRelevance(
     name="relevant",
     # Defaults are usually correct:
     # question_key="trace.last.inputs",
-    # answer_key="trace.last.outputs",
+    # target_key="trace.last.outputs",
     context="This is a chatbot that answers questions about our internal HR policies.",
 )
 ```
 
 Fields:
 
-- `question_key: str`: default `"trace.last.inputs"`
-- `answer_key: str`: default `"trace.last.outputs"`
-- `context: str | None`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
+- `question: str` / `question_key: str`: static question, or JSONPath (default `"trace.last.inputs"`)
+- `answer: str` / `target_key: str`: static answer, or JSONPath (default `"trace.last.outputs"`) — the field is `target_key`, not `answer_key`
+- `context: str`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
+- `include_history: bool`: default `True`. Set to `False` to score the current turn in isolation, dropping the conversation-history section from the prompt.
+
+Unresolvable `question_key` / `target_key` return ERROR rather than silently substituting a question inferred from history.
 
 ### Conformity
 
@@ -151,7 +243,7 @@ Conformity(
 
 Fields:
 
-- `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically.
+- `rule: str`: plain text. NOT a Jinja2 template. Receives the full Trace automatically, so it can judge multi-turn behavior.
 
 ### LLMJudge
 
@@ -167,36 +259,66 @@ Question: {{ trace.last.inputs }}
 Agent answer: {{ trace.last.outputs }}
 Gold answer: The capital of France is Paris.
 
-Return passed=true if the agent's answer conveys "Paris is the capital of France"; passed=false otherwise.
+Return passed=true if the agent's answer conveys "Paris is the capital of France"; passed=false otherwise. Include a one-sentence reason.
 """,
 )
 ```
 
 Fields:
 
-- `prompt: str`: Jinja2 template; render with full trace context
+- `prompt: str`: Jinja2 template; rendered with the full trace context
+- `prompt_path: str`: alternative to `prompt` — a registered template reference such as `"my_project::checks/gold.j2"`. Exactly one of the two is required.
+
+### Toxicity
+
+Built-in safety judge across `hate_speech`, `harassment`, `threats`, `self_harm`, `sexual_content`, `violence`. Mostly the `scenario-generator` skill's territory, but useful in a RAG suite when the corpus itself contains sensitive material and you want to confirm the agent does not amplify it.
+
+```python
+Toxicity(name="output_not_toxic", categories=["hate_speech", "harassment"])
+```
+
+It passes when the output is clean, so do not wrap it in `Not`.
 
 ## Built-in (rule-based) Checks
 
 ```python
 # Keyword presence: passes if `keyword` is found in the resolved text.
-StringMatching(name="cites_paris", keyword="Paris", text_key="trace.last.outputs")
+StringMatching(name="cites_paris", keyword="Paris", target_key="trace.last.outputs")
+
+# Case-insensitive matching
+StringMatching(name="mentions_refund", keyword="refund", case_sensitive=False)
 
 # Keyword absence: wrap StringMatching in Not. There is NO `expected=False` parameter;
-# StringMatching silently ignores unknown kwargs and only checks for presence.
-Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", text_key="trace.last.outputs"))
+# passing one now raises a ValidationError.
+Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", target_key="trace.last.outputs"))
 
-# Regex
-RegexMatching(name="has_citation", pattern=r"\[\d+\]", text_key="trace.last.outputs")  # citation markers
+# Regex (PyPI `regex` module, with a matching timeout)
+RegexMatching(name="has_citation", pattern=r"\[\d+\]", target_key="trace.last.outputs")
 
-# Equality / comparison
-Equals(expected_value="Paris", key="trace.last.outputs")
-LesserThan(threshold=500, key="trace.last.outputs.length")
+# Equality / comparison. `target_key` selects the actual value; `expected_value`
+# (or `expected_value_key`) supplies the expected one. Exactly one is required.
+Equals(name="is_paris", expected_value="Paris", target_key="trace.last.outputs")
+LessThan(name="answer_is_short", expected_value=500, target_key="trace.last.outputs.length")
+
+# Collection matching: apply the comparison across a list-valued key
+GreaterThan(
+    name="all_scores_confident",
+    expected_value=0.7,
+    target_key="trace.last.outputs.scores",
+    match="all",   # "any" | "all" | "none"
+)
+
+# Structured output validity, optionally against a JSON Schema
+JsonValid(
+    name="envelope_is_valid_json",
+    target_key="trace.last.outputs",
+    schema={"type": "object", "required": ["answer", "sources"]},
+)
 
 # Custom function: receives Trace, NOT the output string
 FnCheck(
     name="answer_non_empty",
-    fn=lambda trace: len(trace.last.outputs) > 0,
+    fn=lambda trace: len(str(trace.last.outputs)) > 0,
 )
 
 # Composition
@@ -204,6 +326,8 @@ AllOf(name="all_pass", checks=[check1, check2])
 AnyOf(name="grounded_or_refused", checks=[grounded_check, refusal_check])
 Not(name="not_empty", check=empty_check)
 ```
+
+Comparison checks are named `LessThan`, `LessThanEquals`, `GreaterThan`, `GreaterThanEquals`. `LesserThan`, `LesserThanEquals` and `GreaterEquals` do not exist in v3, and there is no `key=` or `threshold=` field on them. An unsupported comparison (e.g. `str < int`) returns ERROR, not FAIL.
 
 ## SemanticSimilarity
 
@@ -213,20 +337,20 @@ Embedding-based similarity to a reference string.
 SemanticSimilarity(
     name="matches_gold",
     reference_text="The capital of France is Paris.",
-    actual_answer_key="trace.last.outputs",  # adjust to ".answer" if SUT returns dict
-    threshold=0.5,                            # default is 0.95 which is very strict
+    target_key="trace.last.outputs",   # adjust to ".answer" if SUT returns dict
+    threshold=0.5,                      # default is 0.95 which is very strict
 )
 ```
 
 Fields:
 
-- `reference_text: str | None`: static gold; if set, takes priority over `reference_text_key`.
-- `reference_text_key: str`: JSONPath; default `"trace.last.metadata.reference_text"`. Use this if you attach the reference into the trace metadata at `.interact()` time.
-- `actual_answer_key: str`: JSONPath; default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
+- `reference_text: str`: static gold; when set, takes priority over `reference_text_key`.
+- `reference_text_key: str`: JSONPath; default `"trace.last.metadata.reference_text"`. Use this if you attach the reference into the interaction metadata at `.interact()` time.
+- `target_key: str`: JSONPath; default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
 - `threshold: float`: default `0.95` (very strict; calibrate downward to 0.5-0.7 for natural-language answers, where phrasing varies but meaning is preserved).
-- `embedding_model`: optional; the check uses a default embedder if you do not pass one.
+- `embedding_model`: optional; defaults to `text-embedding-3-small` (override globally via `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL`).
 
-Common mistake: passing `reference=` or `text_key=` (incorrect names). The check will silently use defaults and look for the reference at `trace.last.metadata.reference_text`, failing with "No value found for reference text key".
+Common mistake: passing `actual_answer_key=`, `reference=` or `text_key=`. Those names were removed and now raise `pydantic.ValidationError`. Also keep both selectors single-valued: a wildcard or multi-match path resolves to a list, and the check FAILs with a message telling you to narrow the key.
 
 ## UserSimulator
 
@@ -249,7 +373,7 @@ curious_user = UserSimulator(
 scenario = (
     Scenario("parental_leave_followup")
     .interact(inputs=curious_user)
-    .check(Groundedness(name="grounded", context=[...]))
+    .check(Groundedness(name="grounded", context=POLICY_CHUNKS))
     .check(AnswerRelevance(name="relevant"))
 )
 ```
@@ -257,7 +381,9 @@ scenario = (
 Fields:
 
 - `persona: str`: free-text description of the user. Detailed, goal-oriented personas work best. Include background, what the user is trying to accomplish, and a stop condition.
-- `max_steps: int`: max conversation turns (default `3`). Bump up for personas that need clarification rounds.
+- `context: str | None`: optional extra situational detail for the persona.
+- `max_steps: int`: max conversation turns (default `3`). Bump up for personas that need clarification rounds. `max_turns` is not a field and raises a `ValidationError`.
+- `max_retries: int`: per-turn retries when the model refuses (default `2`).
 
 **RAG-quality persona ideas**:
 
@@ -266,7 +392,9 @@ Fields:
 - **Out-of-scope wanderer**: asks one in-scope question, then drifts to topics the KB doesn't cover — tests refusal quality.
 - **Confused/imprecise user**: uses wrong terminology or partial information; tests the agent's ability to clarify before answering.
 
-Requires `set_default_generator(...)` (UserSimulator uses the LLM to generate each turn). For **adversarial personas** (manipulation, prompt-injection, jailbreaks) use the `scenario-generator` skill instead.
+For **adversarial personas** (manipulation, prompt-injection, jailbreaks) use the `scenario-generator` skill instead.
+
+Related generators: `LLMGenerator(prompt=... | prompt_path=..., max_steps=...)` when you want to supply the whole driving prompt, and `DatasetInputGenerator(prompt="...")` to replay a fixed question verbatim (it also adapts the prompt into a structured target schema when the SUT does not take plain strings).
 
 ## Multi-turn scenarios
 
@@ -274,49 +402,164 @@ Requires `set_default_generator(...)` (UserSimulator uses the LLM to generate ea
 scenario = (
     Scenario("multi_turn_rag")
     .interact(inputs="What is the company's vacation policy?")
-    .check(Groundedness(name="grounded_1", context=[...]))
+    .check(Groundedness(name="grounded_1", context=POLICY_CHUNKS))
     .interact(inputs="And how does it work for new hires?")  # follow-up
-    .check(Groundedness(name="grounded_2", context=[...]))
+    .check(Groundedness(name="grounded_2", context=POLICY_CHUNKS))
     .check(AnswerRelevance(name="relevant_2"))
 )
 ```
 
-Each `.interact()` is a turn. Checks placed after a turn evaluate that turn's interaction. `trace.interactions[i]` accesses turn `i`.
+Each `.interact()` is a turn. Checks placed after a turn evaluate that turn's interaction. `trace.interactions[i]` accesses turn `i`. A failing turn stops the scenario, so later turns report SKIP — expected, and the reason to read `status` rather than `not passed`.
+
+To make a follow-up depend on the previous answer, pass a trace-aware callable:
+
+```python
+.interact(inputs=lambda trace: f"You said {trace.last.outputs}. Where is that documented?")
+```
+
+## JSONPath keys
+
+Every selector must start with `trace.`; anything else raises a `ValidationError` at construction time.
+
+- `trace.last.outputs` — most recent output (most common)
+- `trace.last.inputs` — most recent question
+- `trace.last.outputs.answer` / `trace.last.outputs.context` — fields of a structured output
+- `trace.last.metadata.context` — data attached via `.interact(..., metadata={...})`
+- `trace.interactions[0].outputs` — first turn's answer
+- `trace.annotations.key` — scenario-level annotation
+
+A path matching nothing resolves to `NoMatch`, which checks report as ERROR. A wildcard or multi-match path resolves to a list.
 
 ## Configuring the LLM generator
 
-LLM-backed checks (`Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`) need a generator.
+LLM-backed checks (`Groundedness`, `Contradiction`, `AnswerRelevance`, `Conformity`, `LLMJudge`, `Toxicity`) and `UserSimulator` need a generator.
 
 ```python
+from giskard.agents import Generator
+from giskard.checks import set_default_generator
+
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
-For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent. The `model` string follows LiteLLM's `<provider>/<model>` convention; see the [LiteLLM providers reference](https://docs.litellm.ai/docs/providers) for currently supported models.
+Calling `set_default_generator` is optional in v3: checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
+
+For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent.
+
+**Model strings are `provider/model` routed through `giskard-llm`'s native providers**, not LiteLLM. Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+
+For anything else:
+
+```python
+# OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter, ...)
+import giskard.llm
+
+giskard.llm.configure("local", provider="openai", base_url="http://localhost:11434/v1", api_key="ollama")
+set_default_generator(Generator(model="local/llama3"))
+
+# Or go through LiteLLM: pip install "giskard[litellm]"
+from giskard.agents.generators import LiteLLMGenerator
+
+set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-3-sonnet"))
+```
 
 **Variants**:
 
 - **Per-check override**: pass `generator=Generator(model="openai/gpt-4o")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
+
+**Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
+
+- `GISKARD_CHECKS_DEFAULT_MODEL` — default judge model (default `openai/gpt-4o-mini`)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` — default embedder (default `text-embedding-3-small`)
+- `GISKARD_CHECKS_MAX_REPORTED_FAILURES` — cap failures shown in suite reports
+- `GISKARD_CHECKS_DISABLE_RICH_PRETTY` — disable rich REPL pretty-printing
 
 ## Persistence (CI-friendly)
 
 ```python
 from pathlib import Path
 
-result = await suite.run(target=my_agent)
-result.print_report()
+result = await suite.run(target=my_agent, parallel=True, verbose=False)
+result.print_report(group_by="Dimension")
 Path("rag_results.json").write_text(result.model_dump_json(indent=2))
+result.to_junit_xml("rag_results.xml")     # per-scenario pass/fail in CI dashboards
 ```
 
-For pytest / CI integration: `giskard.checks.export.junit` provides JUnit XML export, useful for surfacing per-check pass/fail in CI dashboards.
+`SuiteResult.to_junit_xml()` supersedes reaching into `giskard.checks.export.junit` directly (that module still exists and backs the method).
+
+## Automatic knowledge-base quality scan
+
+`giskard.scan.quality_scan` is the v3 successor to v2's RAGET. It generates a knowledge-base quality suite from your documents, runs it, prints a grouped report with a recommendation, and returns a `SuiteResult`.
+
+```python
+from giskard.scan import KnowledgeBase, quality_scan
+
+result = await quality_scan(
+    target=my_rag_agent,
+    description="An assistant that answers questions about our internal HR policies.",
+    languages=["en"],                    # BCP-47 codes the agent must handle
+    knowledge_base=KnowledgeBase.from_texts(KB_CHUNKS),  # or a plain list[str]
+    max_scenarios=30,                    # total cap across generators
+    seed=42,                             # reproducible generation
+    group_by="component",                # tag key for the printed table
+    parallel=True,
+    max_concurrency=None,
+    return_exception=False,
+    target_mode="multiturn",             # "singleturn" skips multi-turn-only generators
+)
+```
+
+Generators behind it: `HallucinationScenarioGenerator`, `SycophancyScenarioGenerator`, `SplitQuestionsScenarioGenerator`, `MultiTopicScenarioGenerator`, `OutOfScopeScenarioGenerator`.
+
+Omitting `knowledge_base` (or passing an empty one) emits a `RuntimeWarning` and skips the knowledge-base scenarios, which is nearly everything the quality scan does — so always supply documents.
+
+### KnowledgeBase
+
+```python
+from giskard.scan import Document, KnowledgeBase
+
+kb = KnowledgeBase.from_texts(["chunk 1", "chunk 2"])
+kb = KnowledgeBase(documents=(Document(content="chunk 1", tags=["policy"]),))
+
+neighbours = await kb.closest_documents_to_text("parental leave", max_documents=3)
+```
+
+The document collection is frozen, embeddings are computed lazily in one batch on first nearest-neighbour lookup, and at least one non-empty document is required. `KnowledgeBase.from_pandas` (v2) does not exist; convert your DataFrame column to a list of strings first. Passing a bare `str` is rejected rather than being split into one document per character.
+
+### Composing your own generated suite
+
+```python
+from giskard.scan import HallucinationScenarioGenerator, OutOfScopeScenarioGenerator, generate_suite
+
+suite = await generate_suite(
+    description="An assistant that answers questions about our internal HR policies.",
+    languages=["en"],
+    generators=[HallucinationScenarioGenerator(), OutOfScopeScenarioGenerator()],
+    max_scenarios=20,
+    seed=42,
+    knowledge_base=kb,
+)
+result = await suite.run(target=my_rag_agent, parallel=True)
+```
+
+Because the result is an ordinary `Suite` / `SuiteResult`, a generated suite and a hand-written one can be reported side by side, or their scenarios merged into one suite.
 
 ## Common Pitfalls
 
-- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` is silently ignored; use `.check(...)` instead.
-- **Agent isn't called**: parameter is named `query` instead of `inputs`; only `inputs` and `trace` are injected.
-- **Groundedness always passes / always fails**: forgot `set_default_generator(...)`, or `context` and `context_key` both set with `context` empty.
-- **`AnswerRelevance` returns "relevant" for off-topic answers**: pass a `context="..."` describing the agent's domain so the judge has scope to ground its decision.
+- **`ValidationError: Extra inputs are not permitted`**: a removed or misspelled field. Most often a pre-v3 selector (`answer_key`, `actual_answer_key`, `text_key`, `key`); rename to `target_key`.
+- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` silently drops the kwarg. Use `.check(...)`.
+- **Agent isn't called / `TypeError: Parameter 'query' is required but not in the injection requirements`**: only `inputs` and `trace` are injected. Wrap the user's function.
+- **`RuntimeError: asyncio.run() cannot be called from a running event loop`**: a sync SUT calls `asyncio.run()` internally. Make the SUT `async def` and `await` the SDK's async API (`arun`, `ainvoke`, `aquery`, ...).
+- **`TypeError: unsupported format string passed to NoneType`** on the pass rate: `pass_rate` is `None` for an empty or fully skipped suite. Guard it.
+- **`Groundedness` reports ERROR**: `context_key` or `target_key` resolved to nothing. The default `context_key` is `trace.last.metadata.context`, not the agent's output — set it explicitly when the chunks come back in the answer payload.
+- **`Groundedness` always passes / always fails**: `context` (static) shadows `context_key`; the static value always wins. Pass only one.
+- **`AnswerRelevance` returns "relevant" for off-topic answers**: pass `context="..."` describing the agent's domain so the judge has scope to ground its decision.
+- **`ValidationError: path must start with 'trace.'`**: every JSONPath selector is rooted at `trace.`.
 - **`FnCheck` errors on `trace.last.outputs`**: `fn` receives a Trace object, not a string. Use `lambda trace: ... trace.last.outputs ...`, not `lambda outputs: ...`.
-- **`SemanticSimilarity` errors with "No value found for reference text key"**: you passed `reference=` or `text_key=`. The actual fields are `reference_text=` and `actual_answer_key=`. Default threshold is 0.95 (very strict); calibrate to 0.5-0.7 for natural-language answers.
-- **`StringMatching(expected=False)` silently does nothing**: `expected=` is not a real field; pydantic accepts and ignores it. To check for absence, wrap in `Not(StringMatching(...))`.
-- **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`. Use `scen.final_trace.last.outputs`.
-- **Sync target deadlocks with "This event loop is already running"**: giskard's runner already holds an event loop. If the underlying SDK exposes a sync entry point that internally calls `asyncio.run()`, invoking it from inside the SUT will deadlock. Define the SUT as `async def agent(inputs):` and `await` the SDK's async API instead. Typical names for the async API are `arun`, `ainvoke`, `aquery`, or a `run` method that returns a coroutine.
+- **`SemanticSimilarity` complains the value must be a single value**: the key resolved to a list (a wildcard or multi-match path). Narrow the selector.
+- **`SemanticSimilarity` fails everything**: default threshold is 0.95 (very strict); calibrate to 0.5-0.7 for natural-language answers.
+- **`StringMatching(expected=False)` no longer silently does nothing** — it raises. Wrap in `Not(...)` to assert absence.
+- **`LesserThan` / `GreaterEquals` ImportError**: renamed to `LessThan` / `GreaterThanEquals`.
+- **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
+- **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: v3 routes natively, not through LiteLLM. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **Later turns of a multi-turn scenario report SKIP**: an earlier step failed, so the rest never ran. Skipped scenarios are excluded from the pass-rate denominator.

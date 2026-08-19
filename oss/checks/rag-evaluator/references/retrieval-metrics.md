@@ -1,6 +1,8 @@
 # Retrieval Metrics
 
-Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". The `giskard.checks` library does not bundle these as named checks; the recipe is to wrap each formula in a `FnCheck` (see the [`FnCheck` entry in `api-reference.md`](./api-reference.md#built-in-rule-based-checks) — note that `FnCheck` receives a `Trace`, not the output string).
+Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". Giskard v3's `giskard.checks` does not bundle these as named checks, and neither does `giskard.scan`'s `quality_scan`; the recipe is to wrap each formula in a `FnCheck` (see the [`FnCheck` entry in `api-reference.md`](./api-reference.md#built-in-rule-based-checks) — note that `FnCheck` receives a `Trace`, not the output string).
+
+All of these need the retrieved doc IDs to be visible in the trace. Either have the SUT return them (`{"answer": ..., "retrieved_ids": [...]}`, read via `trace.last.outputs`) or attach them with `.interact(..., metadata={"retrieved_ids": [...]})` when you pre-retrieve. Guard for the shape inside `fn`: a `dict`-returning SUT that errors on one question would otherwise raise an `AttributeError` instead of producing a clean check result.
 
 This file covers two questions:
 
@@ -185,7 +187,7 @@ Then plug this into the metric formulas by replacing `doc_id in relevant_ids` wi
 For each retrieved doc, ask an LLM "is this relevant to the query?". Use when you have no labels at all (or want to validate cosine scoring against a stronger signal).
 
 ```python
-from giskard.agents.generators import Generator
+from giskard.agents import BaseGenerator, Generator
 from pydantic import BaseModel
 
 class RelevanceVerdict(BaseModel):
@@ -195,14 +197,14 @@ class RelevanceVerdict(BaseModel):
 async def is_relevant_llm(
     query: str,
     retrieved_text: str,
-    generator: Generator,
+    generator: BaseGenerator,
 ) -> bool:
     chat = await (
         generator
         .chat(
             "Decide if the following document is relevant to the query.\n\n"
             f"Query: {query}\n\nDocument: {retrieved_text}\n\n"
-            "Return relevant=true if the document directly addresses the query, false otherwise."
+            "Return relevant=true if the document directly addresses the query, false otherwise, with a short reason."
         )
         .with_output(RelevanceVerdict)
         .run()
@@ -210,7 +212,9 @@ async def is_relevant_llm(
     return chat.output.relevant
 ```
 
-This is slow and costs LLM calls per retrieved doc. Sample a subset of queries if you go this route. Consider using a smaller, faster judge (e.g., `gpt-4o-mini`).
+`Generator` is imported from `giskard.agents` (not `giskard.agents.generators`), and `generator.chat(...)` returns a `ChatWorkflow` you refine with `.with_output(...)` / `.with_inputs(...)` before `await ...run()`. The structured result is on `chat.output`. Reuse the judge configured for the suite via `giskard.checks.get_default_generator()` rather than constructing a second one.
+
+This is slow and costs LLM calls per retrieved doc. Sample a subset of queries if you go this route. Consider using a smaller, faster judge (e.g., `openai/gpt-4o-mini`).
 
 ---
 
@@ -234,7 +238,26 @@ def make_recall_check(
     return FnCheck(name=f"recall@{k}>={threshold:.2f}", fn=fn)
 ```
 
-For metrics that should report the value (not just pass/fail), wrap the same function with `LesserThan` / `GreaterThan` against a numeric metric instead. The simpler path is the boolean `FnCheck` shown above.
+If you want the numeric score to appear in the report rather than a bare pass/fail, return a `CheckResult` with a `Metric` attached instead of a bool. `FnCheck` accepts either:
+
+```python
+from giskard.checks import CheckResult, FnCheck, Metric
+
+def make_recall_check_with_metric(relevant_ids: set[str], k: int, threshold: float) -> FnCheck:
+    def fn(trace) -> CheckResult:
+        outputs = trace.last.outputs
+        retrieved = outputs.get("retrieved_ids", []) if isinstance(outputs, dict) else []
+        score = recall_at_k(relevant_ids, retrieved, k)
+        metrics = [Metric(name=f"recall@{k}", value=score)]
+        message = f"recall@{k} = {score:.3f} (threshold {threshold:.2f})"
+        if score >= threshold:
+            return CheckResult.success(message=message, metrics=metrics)
+        return CheckResult.failure(message=message, metrics=metrics)
+
+    return FnCheck(name=f"recall@{k}>={threshold:.2f}", fn=fn)
+```
+
+The alternative — pointing a comparison check at the score — only works if the SUT itself returns the score in its output, since `GreaterThanEquals(expected_value=..., target_key=...)` selects a value from the trace rather than computing one. Note the v3 names: `LessThan`, `LessThanEquals`, `GreaterThan`, `GreaterThanEquals`; `LesserThan` and `GreaterEquals` do not exist, and there is no `threshold=` field on them.
 
 ## Picking thresholds
 
@@ -253,10 +276,10 @@ These are starting points; tune to your corpus and retriever.
 
 ## Reporting numbers, not just pass/fail
 
-Pass/fail thresholds are useful for CI gates, but during development you usually want the raw scores. The pattern:
+Pass/fail thresholds are useful for CI gates, but during development you usually want the raw scores. Two complementary options:
 
-1. Run the suite with `FnCheck` thresholds for CI.
-2. Separately, compute the raw metrics outside the suite for trend tracking and report them in `result.print_report()` output via a custom post-processing step.
+1. Attach a `Metric` from inside the `FnCheck` (see `make_recall_check_with_metric` above) so the score travels with the `CheckResult` and lands in `result.model_dump_json()`.
+2. Recompute the raw metrics outside the suite for aggregate trend tracking.
 
 Example post-processing helper, called after `await suite.run(...)`:
 
@@ -264,7 +287,12 @@ Example post-processing helper, called after `await suite.run(...)`:
 def aggregate_retrieval_metrics(suite_result, test_cases, k: int = 5):
     recalls, precisions, mrrs = [], [], []
     for tc, scen in zip(test_cases, suite_result.results):
-        outputs = scen.final_trace.last.outputs  # ScenarioResult exposes .final_trace
+        # ScenarioResult exposes the trace as .final_trace (there is no .trace).
+        # `last` is None for a scenario that never produced an interaction.
+        last = scen.final_trace.last
+        outputs = last.outputs if last is not None else None
+        if not isinstance(outputs, dict):
+            continue
         retrieved = outputs.get("retrieved_ids") or outputs.get("retrieved_paper_ids") or []
         relevant = set(tc["relevant_ids"])
         recalls.append(recall_at_k(relevant, retrieved, k))
@@ -277,5 +305,7 @@ def aggregate_retrieval_metrics(suite_result, test_cases, k: int = 5):
         "mrr_mean": sum(mrrs) / n,
     }
 ```
+
+Note the two guards: `final_trace.last` is `None` when the scenario produced no interaction (input generation errored), and `suite.run(parallel=True)` preserves result order, so zipping against `test_cases` stays valid.
 
 Track these means in your CI logs for trend lines independent of the pass/fail gate.
