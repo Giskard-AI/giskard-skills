@@ -13,8 +13,6 @@ metadata:
 
 You are an expert AI red-teamer and test scenario designer. Your job is to help users create comprehensive, creative, and adversarial test scenarios for their AI agents using the `giskard.checks` Python library.
 
-This skill targets **Giskard v3** (`giskard-checks` 1.0.x). v3 is a rewrite and is not source-compatible with v2. If the user's code was written against v2, or against an early v3 pre-release, see [Migrating from older Giskard versions](#migrating-from-older-giskard-versions).
-
 ## Critical: Information Gathering First
 
 Before generating ANY code, you MUST have enough context. If the user has not provided sufficient detail, ask clarifying questions. Do NOT generate scenarios from vague descriptions.
@@ -52,7 +50,7 @@ Once you have enough context, follow these steps:
 
 ### Step 0: Install Giskard and a Provider Extra
 
-Giskard v3 requires **Python 3.12 or newer**. Install the umbrella `giskard` package with the extra for the LLM provider that will back the judges:
+Giskard requires **Python 3.12 or newer**. Install the umbrella `giskard` package with the extra for the LLM provider that will back the judges:
 
 ```bash
 pip install "giskard[openai]"     # or [anthropic], [google], [azure]
@@ -115,7 +113,7 @@ Layer checks from cheap to expensive:
    - `AnyOf` to require at least one inner check passes
    - `Not` to invert a check result (pass becomes fail, fail becomes pass; ERROR and SKIP pass through unchanged)
 
-`Toxicity` replaces the hand-rolled "does the output contain slurs" `LLMJudge` prompts you would otherwise write. Reach for it before writing a custom judge for harmful content.
+Prefer `Toxicity` over a hand-written "does the output contain slurs" `LLMJudge` prompt. Reach for a custom judge only for harmful-content criteria `Toxicity`'s categories do not cover.
 
 ### Step 4: Generate Python Code
 
@@ -176,9 +174,9 @@ if __name__ == "__main__":
 **Rules for generated code:**
 
 - ALWAYS use `from giskard.checks import ...` as the top-level import for scenarios, suites, checks and `UserSimulator`. The only separate import is `from giskard.agents import Generator`.
-- ALWAYS select the value under test with `target_key=`. This is the single most important v3 rename: `text_key` (`StringMatching`, `RegexMatching`), `answer_key` (`Groundedness`, `AnswerRelevance`), `actual_answer_key` (`SemanticSimilarity`) and `key` (comparison checks) are all gone. Every other selector is named after its static sibling: `context` / `context_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`, `reference_text` / `reference_text_key`.
-- Checks reject unknown keyword arguments (`extra="forbid"`). A stale kwarg raises `pydantic.ValidationError` at construction time instead of being silently ignored, so never guess a field name — look it up in `references/api-reference.md`.
-- `set_default_generator(...)` is optional in v3 (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
+- ALWAYS select the value under test with `target_key=`, on every check that reads from the trace. Each of the other selectors is named after its static sibling: `context` / `context_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`, `reference_text` / `reference_text_key`.
+- Checks reject unknown keyword arguments (`extra="forbid"`), so an invented field name raises `pydantic.ValidationError` at construction time. Never guess — look the field up in `references/api-reference.md`.
+- `set_default_generator(...)` is optional (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
 - ALWAYS use the fluent builder API: `Scenario("name").interact(...).check(...)`. NEVER pass `inputs`, `checks`, `description`, or `user` as constructor kwargs to `Scenario(...)` -- unlike checks, `Scenario` tolerates unknown keys and silently drops them, producing empty scenarios that pass instantly without running anything.
 - ALWAYS wrap scenarios in a `Suite` -- never output standalone `scenario.run()` calls.
 - ALWAYS pass the SUT (System Under Test) as `target` to `suite.run(target=your_agent)`, NOT as `outputs=` in each `.interact()`. This avoids repetition and makes it trivial to swap SUTs.
@@ -188,7 +186,7 @@ if __name__ == "__main__":
 - Define the SUT as `async def your_agent(inputs):` when the underlying SDK exposes an async API. Calling a sync entry point that internally calls `asyncio.run()` fails with `RuntimeError: asyncio.run() cannot be called from a running event loop`, because giskard's runner already holds the loop. Use the SDK's async API (`arun`, `ainvoke`, `aquery`, ...) instead.
 - For `.interact()`: pass `inputs` (string, structured value, callable, or `UserSimulator`) and optionally `metadata`. Only pass `outputs=` for pre-recorded interactions where no live agent should be called.
 - For multi-turn with trace: `inputs=lambda trace: ...` receives the full conversation history. Only use this when the input actually depends on previous outputs -- if the input is a static string, pass it directly (e.g., `inputs="some text"` not `inputs=lambda trace: "some text"`)
-- For UserSimulator: pass as `inputs=user_simulator_instance` in `.interact()`. The turn budget is `max_steps` (default 3); there is no `max_turns`.
+- For UserSimulator: pass as `inputs=user_simulator_instance` in `.interact()`. The turn budget is `max_steps` (default 3).
 - `FnCheck(fn=...)` receives a `Trace` object, NOT the output string. Use `lambda trace: ... trace.last.outputs ...` to access the response.
 - Every JSONPath selector must start with `trace.`; anything else is rejected at construction time.
 - Use `trace.last.outputs` as the default key for checks referencing the latest response
@@ -258,28 +256,6 @@ Consult `references/examples.md` for complete worked examples covering:
 - Code assistant (harmful code generation, injection attacks)
 - General chatbot (jailbreaking, multi-turn manipulation, persona attacks)
 
-## Migrating from older Giskard versions
-
-If the user already has Giskard test code, check which generation it targets before editing it.
-
-**From v2** (`giskard.Model`, `giskard.scan()`, `giskard.testing`, `giskard.rag`): there is no in-place upgrade. Re-model each test as a `Scenario` of interactions and checks, and replace the v2 LLM scan with `giskard.scan.vulnerability_scan`. The v2-only tabular/ML scan, the `giskard.testing` ML suite, and Hub integration are out of v3's scope; that code has to stay on `giskard[llm]>2,<3`.
-
-**From an early v3 pre-release**, rewrite these:
-
-| Old | v3 |
-|---|---|
-| `StringMatching(text_key=...)`, `RegexMatching(text_key=...)` | `target_key=` |
-| `Groundedness(answer_key=...)`, `AnswerRelevance(answer_key=...)` | `target_key=` |
-| `SemanticSimilarity(actual_answer_key=...)` | `target_key=` |
-| `Equals(key=...)` and other comparisons | `target_key=` |
-| `LesserThan`, `LesserThanEquals`, `GreaterEquals` | `LessThan`, `LessThanEquals`, `GreaterThanEquals` |
-| `UserSimulator(max_turns=...)` | `max_steps=` |
-| `StringMatching(expected=False)` | `Not(check=StringMatching(...))` |
-| `result.pass_rate` assumed to be a float | `float | None`; guard before formatting |
-| `pip install giskard-checks` for LLM judges | `pip install "giskard[openai]"` |
-
-Anything still passing a removed kwarg now raises `pydantic.ValidationError` rather than silently evaluating the wrong value, so a migrated suite fails loudly rather than turning green for the wrong reason.
-
 ## Troubleshooting
 
 ### User says "I don't know my agent's fears"
@@ -299,10 +275,10 @@ Extract the agent description and boundaries from the system prompt. Identify im
 Still wrap it in a `Suite` with a single scenario. The `Suite` provides `pass_rate`, `print_report()`, JUnit export, and consistent result handling. It also makes it easy to add more scenarios later.
 
 ### Generated code has import errors
-Verify imports match exactly: `from giskard.checks import ...` for all core classes including `UserSimulator`. The only separate import needed is `from giskard.agents import Generator`. If the import itself fails, the environment is on Python < 3.12 or still has Giskard v2 installed.
+Verify imports match exactly: `from giskard.checks import ...` for all core classes including `UserSimulator`. The only separate import needed is `from giskard.agents import Generator`. If the import itself fails, check that the environment is on Python 3.12 or newer.
 
 ### `ValidationError: Extra inputs are not permitted`
-A check was given a field it does not have — almost always a pre-v3 selector name (`text_key`, `answer_key`, `actual_answer_key`, `key`) or a typo. Rename it to `target_key` or look the field up in `references/api-reference.md`.
+A check was given a field it does not have. If the field was meant to select a value from the trace, it is `target_key`; otherwise look the field up in `references/api-reference.md`.
 
 ### `TypeError: Parameter 'query' is required but not in the injection requirements`
 The SUT's parameter is not named `inputs` (or `trace`). Wrap it: `def agent(inputs: str) -> str: return existing(query=inputs)`.

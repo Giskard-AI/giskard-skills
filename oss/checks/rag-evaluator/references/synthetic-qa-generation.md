@@ -2,7 +2,7 @@
 
 When the user provides a KB but no curated test set, generate synthetic questions. Bad synthetic Q&A = bad eval, so this matters.
 
-**First decide whether you need to generate the data yourself.** Giskard v3 ships `giskard.scan.quality_scan`, the successor to v2's `RAGET` (`giskard.rag.generate_testset`, which no longer exists). It generates *and runs* knowledge-base quality scenarios from your documents — hallucination, sycophancy, split-question, multi-topic and out-of-scope — with no prompt engineering from you:
+**First decide whether you need to generate the data yourself.** `giskard.scan.quality_scan` generates *and runs* knowledge-base quality scenarios from your documents — hallucination, sycophancy, split-question, multi-topic and out-of-scope — with no prompt engineering from you:
 
 ```python
 from giskard.scan import KnowledgeBase, quality_scan
@@ -17,7 +17,7 @@ result = await quality_scan(
 )
 ```
 
-Generate your own Q&A instead when you need the **questions as reusable data**: a dataset to review and curate with domain experts, to diff across releases, to pair with hand-labelled relevant doc IDs for retrieval metrics, or to share with a team that is not running Giskard. The prompts below are for that case; they follow the same question-type taxonomy `RAGET` used.
+Generate your own Q&A instead when you need the **questions as reusable data**: a dataset to review and curate with domain experts, to diff across releases, to pair with hand-labelled relevant doc IDs for retrieval metrics, or to share with a team that is not running Giskard. The prompts below are for that case.
 
 ## Goals
 

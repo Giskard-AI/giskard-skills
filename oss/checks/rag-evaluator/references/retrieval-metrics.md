@@ -1,6 +1,6 @@
 # Retrieval Metrics
 
-Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". Giskard v3's `giskard.checks` does not bundle these as named checks, and neither does `giskard.scan`'s `quality_scan`; the recipe is to wrap each formula in a `FnCheck` (see the [`FnCheck` entry in `api-reference.md`](./api-reference.md#built-in-rule-based-checks) — note that `FnCheck` receives a `Trace`, not the output string).
+Ready-to-paste implementations of the standard retrieval-quality metrics, plus three scoring strategies for picking how strictly to count a retrieved document as "relevant". Neither `giskard.checks` nor `giskard.scan`'s `quality_scan` bundles these as named checks; the recipe is to wrap each formula in a `FnCheck` (see the [`FnCheck` entry in `api-reference.md`](./api-reference.md#built-in-rule-based-checks) — note that `FnCheck` receives a `Trace`, not the output string).
 
 All of these need the retrieved doc IDs to be visible in the trace. Either have the SUT return them (`{"answer": ..., "retrieved_ids": [...]}`, read via `trace.last.outputs`) or attach them with `.interact(..., metadata={"retrieved_ids": [...]})` when you pre-retrieve. Guard for the shape inside `fn`: a `dict`-returning SUT that errors on one question would otherwise raise an `AttributeError` instead of producing a clean check result.
 
@@ -257,7 +257,7 @@ def make_recall_check_with_metric(relevant_ids: set[str], k: int, threshold: flo
     return FnCheck(name=f"recall@{k}>={threshold:.2f}", fn=fn)
 ```
 
-The alternative — pointing a comparison check at the score — only works if the SUT itself returns the score in its output, since `GreaterThanEquals(expected_value=..., target_key=...)` selects a value from the trace rather than computing one. Note the v3 names: `LessThan`, `LessThanEquals`, `GreaterThan`, `GreaterThanEquals`; `LesserThan` and `GreaterEquals` do not exist, and there is no `threshold=` field on them.
+The alternative — pointing a comparison check at the score — only works if the SUT itself returns the score in its output, since `GreaterThanEquals(expected_value=..., target_key=...)` selects a value from the trace rather than computing one.
 
 ## Picking thresholds
 

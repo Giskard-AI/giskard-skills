@@ -1,11 +1,11 @@
 # Giskard Checks API Reference
 
-Complete API reference for generating test scenarios with **Giskard v3** (`giskard-checks` 1.0.x). All public classes are importable from `giskard.checks`.
+Complete API reference for generating test scenarios. All public classes are importable from `giskard.checks`.
 
-Two conventions carry most of the weight in v3 and are worth internalizing before reading further:
+Two conventions carry most of the weight and are worth internalizing before reading further:
 
 1. **The value under test is always selected by `target_key`.** Every other JSONPath selector is named after its static sibling (`context` / `context_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`, `reference_text` / `reference_text_key`).
-2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a misspelled or removed kwarg raises `pydantic.ValidationError` at construction time rather than silently falling back to a default.
+2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a misspelled kwarg raises `pydantic.ValidationError` at construction time rather than silently falling back to a default.
 
 ## Installation
 
@@ -386,8 +386,6 @@ GreaterThan(
 )
 ```
 
-The names `LesserThan`, `LesserThanEquals` and `GreaterEquals` do not exist in v3, and comparison checks have no `key=` or `threshold=` field.
-
 If the two values cannot be compared (e.g. `str < int`), the check returns ERROR, not FAIL.
 
 ### StringMatching
@@ -412,7 +410,7 @@ Fields:
 - `case_sensitive: bool` -- default `True`
 - `normalization_form` -- default `"NFKC"`
 
-There is no `expected=` parameter, and passing one now raises a `ValidationError`. To assert **absence**, wrap in `Not`:
+`StringMatching` only asserts presence. To assert **absence**, wrap it in `Not`:
 
 ```python
 Not(name="no_forbidden_word", check=StringMatching(keyword="forbidden", target_key="trace.last.outputs"))
@@ -453,7 +451,7 @@ Fields:
 - `threshold: float` -- default `0.95`, which is very strict; calibrate to 0.5-0.7 for natural-language answers
 - `embedding_model` -- optional; defaults to `text-embedding-3-small` (override via `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL`)
 
-The field is `target_key`, not `actual_answer_key`. If either side resolves to a list, the check FAILs with a message telling you to use a single-valued key.
+Keep both selectors single-valued: if either side resolves to a list, the check FAILs with a message telling you to use a single-valued key.
 
 ### JsonValid
 
@@ -500,7 +498,7 @@ class LLMCheckResult(BaseModel):
     passed: bool     # required
 ```
 
-`reason` is **required** in v3, so custom `LLMJudge` prompts must ask for a justification or the judge call fails validation.
+`reason` is **required**, so custom `LLMJudge` prompts must ask for a justification or the judge call fails validation.
 
 ### LLMJudge
 
@@ -618,7 +616,7 @@ AnswerRelevance(
 
 **Parameters:**
 - `question` / `question_key`: static question, or JSONPath (default `"trace.last.inputs"`)
-- `answer` / `target_key`: static answer, or JSONPath (default `"trace.last.outputs"`) -- the field is `target_key`, not `answer_key`
+- `answer` / `target_key`: static answer, or JSONPath (default `"trace.last.outputs"`)
 - `context`: optional domain description scoping what counts as relevant. Not extracted from the trace.
 - `include_history`: pass the prior turns to the judge as read-only context. Only the current turn is scored.
 
@@ -739,7 +737,7 @@ set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
 Calling `set_default_generator` is optional: LLM checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
 
-**Model strings are `provider/model` routed through `giskard-llm`'s native providers**, not LiteLLM. Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
 
 For anything else:
 
@@ -865,7 +863,7 @@ Requires `pip install "giskard[scan]"`. Generation itself costs LLM calls.
 
 ## Common Pitfalls
 
-- **`ValidationError: Extra inputs are not permitted`**: a removed or misspelled field. Most often a pre-v3 selector (`text_key`, `answer_key`, `actual_answer_key`, `key`); rename to `target_key`.
+- **`ValidationError: Extra inputs are not permitted`**: the check has no such field. If it was meant to select a value from the trace, it is `target_key`; otherwise look the field up above.
 - **Empty Suite passes instantly**: `Scenario("name", checks=[...])` silently drops the kwarg. Use `.check(...)`.
 - **`TypeError: Parameter 'query' is required but not in the injection requirements`**: the SUT parameter is not `inputs` (or `trace`). Wrap it.
 - **`RuntimeError: asyncio.run() cannot be called from a running event loop`**: a sync SUT calls `asyncio.run()` internally. Make the SUT `async def` and await the SDK's async API.
@@ -873,10 +871,9 @@ Requires `pip install "giskard[scan]"`. Generation itself costs LLM calls.
 - **`ValidationError: path must start with 'trace.'`**: every JSONPath selector is rooted at `trace.`.
 - **Check reports ERROR, not FAIL**: the key resolved to `NoMatch`, or the comparison was unsupported (`str < int`). Fix the key or the expected type.
 - **`SemanticSimilarity` complains the value must be a single value**: the key resolved to a list (a wildcard or multi-match path). Narrow the selector.
-- **`StringMatching(expected=False)` no longer silently does nothing** -- it raises. Wrap in `Not(...)` to assert absence.
-- **`LesserThan` / `GreaterEquals` ImportError**: renamed to `LessThan` / `GreaterThanEquals`.
+- **`StringMatching` cannot assert absence on its own**: wrap it in `Not(...)`.
 - **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
 - **`scen.trace.last.outputs` raises AttributeError**: `ScenarioResult` exposes `final_trace`.
-- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: v3 routes natively, not through LiteLLM. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
 - **`Groundedness` always passes / always fails**: check whether `context` (static) is shadowing `context_key`; the static value always wins.
 - **`AnswerRelevance` returns "relevant" for off-topic answers**: pass `context="..."` describing the agent's domain so the judge has scope to ground its decision.

@@ -1,10 +1,10 @@
 # Worked Examples
 
-Complete, runnable code examples for common agent types, written against **Giskard v3** (`giskard-checks` 1.0.x). All examples use `suite.run(target=...)` to pass the SUT at runtime and always wrap scenarios in a Suite.
+Complete, runnable code examples for common agent types. All examples use `suite.run(target=...)` to pass the SUT at runtime and always wrap scenarios in a Suite.
 
 Important:
 - Define SUT parameters as `inputs` (and optional `trace`). Any other required parameter raises `TypeError` when the scenario is built.
-- Select the value under test with `target_key=`. `text_key`, `answer_key`, `actual_answer_key` and `key` were removed in v3 and now raise `ValidationError`.
+- Select the value under test with `target_key=`.
 - Guard `result.pass_rate` before formatting: it is `float | None`.
 - In scripts, persist `SuiteResult` to JSON after `result.print_report()`.
 - In notebooks, print/display `result` after `result.print_report()`.

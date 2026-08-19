@@ -1,11 +1,11 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the **Giskard v3** (`giskard-checks` 1.0.x) API most relevant to RAG evaluation, plus the `giskard-scan` quality-scan entry points. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the `giskard.checks` API most relevant to RAG evaluation, plus the `giskard.scan` quality-scan entry points. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
 
-Two conventions carry most of the weight in v3:
+Two conventions carry most of the weight:
 
 1. **The value under test is always selected by `target_key`.** Every other JSONPath selector is named after its static sibling (`context` / `context_key`, `reference_text` / `reference_text_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`).
-2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a removed or misspelled kwarg raises `pydantic.ValidationError` at construction time instead of silently falling back to a default.
+2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a misspelled kwarg raises `pydantic.ValidationError` at construction time instead of silently falling back to a default.
 
 ## Installation
 
@@ -185,8 +185,6 @@ Fields:
 - `answer: str`: static answer; usually unused for live SUTs
 - `target_key: str`: JSONPath to the answer; default `"trace.last.outputs"`
 
-The field selecting the answer is `target_key`. `answer_key` was removed and now raises a `ValidationError`.
-
 **Variants**:
 
 - **Dynamic context from agent output** (SUT returns a dict): omit `context=` and set `context_key="trace.last.outputs.context"`, `target_key="trace.last.outputs.answer"`.
@@ -224,7 +222,7 @@ AnswerRelevance(
 Fields:
 
 - `question: str` / `question_key: str`: static question, or JSONPath (default `"trace.last.inputs"`)
-- `answer: str` / `target_key: str`: static answer, or JSONPath (default `"trace.last.outputs"`) — the field is `target_key`, not `answer_key`
+- `answer: str` / `target_key: str`: static answer, or JSONPath (default `"trace.last.outputs"`)
 - `context: str`: domain description; helps the judge calibrate "relevant" to the agent's scope. NOT extracted from the trace.
 - `include_history: bool`: default `True`. Set to `False` to score the current turn in isolation, dropping the conversation-history section from the prompt.
 
@@ -288,8 +286,7 @@ StringMatching(name="cites_paris", keyword="Paris", target_key="trace.last.outpu
 # Case-insensitive matching
 StringMatching(name="mentions_refund", keyword="refund", case_sensitive=False)
 
-# Keyword absence: wrap StringMatching in Not. There is NO `expected=False` parameter;
-# passing one now raises a ValidationError.
+# Keyword absence: StringMatching only asserts presence, so wrap it in Not.
 Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", target_key="trace.last.outputs"))
 
 # Regex (PyPI `regex` module, with a matching timeout)
@@ -327,7 +324,7 @@ AnyOf(name="grounded_or_refused", checks=[grounded_check, refusal_check])
 Not(name="not_empty", check=empty_check)
 ```
 
-Comparison checks are named `LessThan`, `LessThanEquals`, `GreaterThan`, `GreaterThanEquals`. `LesserThan`, `LesserThanEquals` and `GreaterEquals` do not exist in v3, and there is no `key=` or `threshold=` field on them. An unsupported comparison (e.g. `str < int`) returns ERROR, not FAIL.
+The comparison checks are `Equals`, `NotEquals`, `LessThan`, `LessThanEquals`, `GreaterThan` and `GreaterThanEquals`. An unsupported comparison between the two values (e.g. `str < int`) returns ERROR, not FAIL.
 
 ## SemanticSimilarity
 
@@ -350,7 +347,7 @@ Fields:
 - `threshold: float`: default `0.95` (very strict; calibrate downward to 0.5-0.7 for natural-language answers, where phrasing varies but meaning is preserved).
 - `embedding_model`: optional; defaults to `text-embedding-3-small` (override globally via `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL`).
 
-Common mistake: passing `actual_answer_key=`, `reference=` or `text_key=`. Those names were removed and now raise `pydantic.ValidationError`. Also keep both selectors single-valued: a wildcard or multi-match path resolves to a list, and the check FAILs with a message telling you to narrow the key.
+Keep both selectors single-valued: a wildcard or multi-match path resolves to a list, and the check FAILs with a message telling you to narrow the key.
 
 ## UserSimulator
 
@@ -441,11 +438,11 @@ from giskard.checks import set_default_generator
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
-Calling `set_default_generator` is optional in v3: checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
+Calling `set_default_generator` is optional: checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
 
 For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent.
 
-**Model strings are `provider/model` routed through `giskard-llm`'s native providers**, not LiteLLM. Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
 
 For anything else:
 
@@ -488,7 +485,7 @@ result.to_junit_xml("rag_results.xml")     # per-scenario pass/fail in CI dashbo
 
 ## Automatic knowledge-base quality scan
 
-`giskard.scan.quality_scan` is the v3 successor to v2's RAGET. It generates a knowledge-base quality suite from your documents, runs it, prints a grouped report with a recommendation, and returns a `SuiteResult`.
+`giskard.scan.quality_scan` generates a knowledge-base quality suite from your documents, runs it, prints a grouped report with a recommendation, and returns a `SuiteResult`.
 
 ```python
 from giskard.scan import KnowledgeBase, quality_scan
@@ -523,7 +520,7 @@ kb = KnowledgeBase(documents=(Document(content="chunk 1", tags=["policy"]),))
 neighbours = await kb.closest_documents_to_text("parental leave", max_documents=3)
 ```
 
-The document collection is frozen, embeddings are computed lazily in one batch on first nearest-neighbour lookup, and at least one non-empty document is required. `KnowledgeBase.from_pandas` (v2) does not exist; convert your DataFrame column to a list of strings first. Passing a bare `str` is rejected rather than being split into one document per character.
+The document collection is frozen, embeddings are computed lazily in one batch on first nearest-neighbour lookup, and at least one non-empty document is required. `from_texts` takes a list of strings, so convert a DataFrame column to a list first. Passing a bare `str` is rejected rather than being split into one document per character.
 
 ### Composing your own generated suite
 
@@ -545,7 +542,7 @@ Because the result is an ordinary `Suite` / `SuiteResult`, a generated suite and
 
 ## Common Pitfalls
 
-- **`ValidationError: Extra inputs are not permitted`**: a removed or misspelled field. Most often a pre-v3 selector (`answer_key`, `actual_answer_key`, `text_key`, `key`); rename to `target_key`.
+- **`ValidationError: Extra inputs are not permitted`**: the check has no such field. If it was meant to select a value from the trace, it is `target_key`; otherwise look the field up above.
 - **Empty Suite passes instantly**: `Scenario("name", checks=[...])` silently drops the kwarg. Use `.check(...)`.
 - **Agent isn't called / `TypeError: Parameter 'query' is required but not in the injection requirements`**: only `inputs` and `trace` are injected. Wrap the user's function.
 - **`RuntimeError: asyncio.run() cannot be called from a running event loop`**: a sync SUT calls `asyncio.run()` internally. Make the SUT `async def` and `await` the SDK's async API (`arun`, `ainvoke`, `aquery`, ...).
@@ -557,9 +554,8 @@ Because the result is an ordinary `Suite` / `SuiteResult`, a generated suite and
 - **`FnCheck` errors on `trace.last.outputs`**: `fn` receives a Trace object, not a string. Use `lambda trace: ... trace.last.outputs ...`, not `lambda outputs: ...`.
 - **`SemanticSimilarity` complains the value must be a single value**: the key resolved to a list (a wildcard or multi-match path). Narrow the selector.
 - **`SemanticSimilarity` fails everything**: default threshold is 0.95 (very strict); calibrate to 0.5-0.7 for natural-language answers.
-- **`StringMatching(expected=False)` no longer silently does nothing** — it raises. Wrap in `Not(...)` to assert absence.
-- **`LesserThan` / `GreaterEquals` ImportError**: renamed to `LessThan` / `GreaterThanEquals`.
+- **`StringMatching` cannot assert absence on its own**: wrap it in `Not(...)`.
 - **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
 - **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`.
-- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: v3 routes natively, not through LiteLLM. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
 - **Later turns of a multi-turn scenario report SKIP**: an earlier step failed, so the rest never ran. Skipped scenarios are excluded from the pass-rate denominator.

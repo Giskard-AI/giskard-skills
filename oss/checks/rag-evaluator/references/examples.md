@@ -1,10 +1,10 @@
 # Worked Examples
 
-Complete, runnable examples for each common RAG eval setup, written against **Giskard v3** (`giskard-checks` 1.0.x, `giskard-scan` 1.0.x). Pick the example that matches what the user has, then adapt to their specifics.
+Complete, runnable examples for each common RAG eval setup. Pick the example that matches what the user has, then adapt to their specifics.
 
 All examples:
 - Use `from giskard.checks import ...` for checks and `from giskard.agents import Generator` for the judge model
-- Select the value under test with `target_key=` (v3 removed `answer_key`, `actual_answer_key`, `text_key` and `key`)
+- Select the value under test with `target_key=`
 - Wrap scenarios in a `Suite`
 - Pass the agent as `target` at run time
 - Configure the LLM judge globally with `set_default_generator(...)`
@@ -373,7 +373,7 @@ if __name__ == "__main__":
 ```
 
 Notes:
-- `Groundedness` and `AnswerRelevance` use `target_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer. `answer_key` was removed in v3 and raises `ValidationError`.
+- `Groundedness` and `AnswerRelevance` use `target_key="trace.last.outputs.answer"` because the agent returns a dict. Without this, they would try to evaluate the whole dict as the answer.
 - The cheap deterministic `FnCheck`s are ordered before the LLM judges. Because all checks in a step run against the same trace, a retrieval failure does not suppress the groundedness verdict — you still see both.
 - `aggregate_retrieval_metrics` reads `scen.final_trace`, not `scen.trace`; `ScenarioResult` has no `trace` attribute.
 - The `FnCheck` thresholds gate the suite (pass/fail). The `aggregate_retrieval_metrics` post-step gives you the raw means alongside, useful for tracking trends across releases without changing thresholds.
@@ -446,7 +446,7 @@ if __name__ == "__main__":
 ```
 
 Notes:
-- `SemanticSimilarity` uses `target_key` for the answer under test; `actual_answer_key` was removed. Default `threshold` is 0.95, which is far too strict for prose — 0.5-0.7 is the useful range.
+- `SemanticSimilarity` uses `target_key` for the answer under test and `reference_text` for the gold. Default `threshold` is 0.95, which is far too strict for prose — 0.5-0.7 is the useful range.
 - The f-string interpolates the gold answer while `{{{{ }}}}` escapes the Jinja2 placeholders that giskard renders. An alternative that avoids the double-escaping entirely is attaching the gold answer as interaction metadata and letting the template read `{{ trace.last.metadata.reference_answer }}`.
 - Golden sets tend to be large, so cap concurrency to stay inside provider rate limits.
 
@@ -649,7 +649,7 @@ if __name__ == "__main__":
 
 **Notes for adapting**:
 
-- `RegexMatching` selects the text with `target_key` (`text_key` was removed in v3). It runs through the PyPI `regex` module with a 2-second `match_timeout_seconds` budget; a catastrophic pattern returns ERROR rather than hanging.
+- `RegexMatching` selects the text with `target_key`. It runs through the PyPI `regex` module with a 2-second `match_timeout_seconds` budget; a catastrophic pattern returns ERROR rather than hanging.
 - If the agent cites with a different format (e.g., `(Smith 2020)`, `Source: doc-id`), update both `CITATION_RE` and the `RegexMatching` pattern, and update the system-prompt instruction accordingly.
 - If your SUT can't return `{"answer", "context"}`, pre-retrieve context per question and pass it inline to the judge prompt as a static block (drop the `{% for %}` loop).
 
@@ -659,7 +659,7 @@ if __name__ == "__main__":
 
 **Setup**: User has a knowledge base and wants broad coverage fast, plus their own gold-data checks.
 
-`quality_scan` is the v3 successor to v2's RAGET: it generates hallucination, sycophancy, split-question, multi-topic and out-of-scope scenarios from the documents, runs them, and returns an ordinary `SuiteResult`. Your hand-written suite still carries the things the scan cannot know — gold answers, doc-ID labels, citation format, product-specific rules.
+`quality_scan` generates hallucination, sycophancy, split-question, multi-topic and out-of-scope scenarios from the documents, runs them, and returns an ordinary `SuiteResult`. Your hand-written suite still carries the things the scan cannot know — gold answers, doc-ID labels, citation format, product-specific rules.
 
 Requires `pip install "giskard[openai,scan]"`.
 

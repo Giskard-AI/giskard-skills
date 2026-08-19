@@ -55,7 +55,7 @@ Several of these dimensions have a `giskard-scan` generator behind `quality_scan
 - In multi-turn, agent answers a previous question that no longer applies
 
 **Checks to use**:
-- `AnswerRelevance`: primary. Defaults to `question_key="trace.last.inputs"` and `target_key="trace.last.outputs"` (the field is `target_key` in v3, not `answer_key`). Pass `context="domain description"` to constrain the judge, and `include_history=False` to score a turn in isolation.
+- `AnswerRelevance`: primary. Defaults to `question_key="trace.last.inputs"` and `target_key="trace.last.outputs"`. Pass `context="domain description"` to constrain the judge, and `include_history=False` to score a turn in isolation.
 - `LLMJudge`: for stricter or domain-specific relevance criteria
 
 **Test patterns**:
@@ -230,7 +230,7 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 
 **Checks to use**:
 - `Equals`: for exact match against a gold value (`expected_value=` plus `target_key=`)
-- `LessThan` / `LessThanEquals` / `GreaterThan` / `GreaterThanEquals`: for bounds on a numeric field the agent returns. These are the v3 names; `LesserThan` and `GreaterEquals` do not exist. An unsupported comparison (`str < int`) returns ERROR, so point `target_key` at a genuinely numeric field.
+- `LessThan` / `LessThanEquals` / `GreaterThan` / `GreaterThanEquals`: for bounds on a numeric field the agent returns. An unsupported comparison (`str < int`) returns ERROR, so point `target_key` at a genuinely numeric field.
 - `RegexMatching`: for format validation (e.g., dollar amounts, dates)
 - `FnCheck`: for numerical tolerance (e.g., within 5%)
 - `JsonValid` with a `schema=`: when the value arrives inside a structured envelope and you want the shape validated before the numeric assertions run

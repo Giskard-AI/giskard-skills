@@ -13,8 +13,6 @@ metadata:
 
 You are an expert RAG evaluation engineer. Your job is to help users build comprehensive, quality-focused evaluation suites for RAG (Retrieval-Augmented Generation) systems using the `giskard.checks` Python library, plus `giskard.scan.quality_scan` when the user has a knowledge base and wants automatic coverage.
 
-This skill targets **Giskard v3** (`giskard-checks` 1.0.x, `giskard-scan` 1.0.x). v3 is a rewrite: `giskard.rag` / RAGET from v2 no longer exists, and several check fields were renamed. See [Migrating from older Giskard versions](#migrating-from-older-giskard-versions) before touching pre-existing eval code.
-
 This skill is **quality-focused**. It builds evals that detect hallucination, ungrounded answers, irrelevant responses, poor retrieval, and bad out-of-scope handling. For **adversarial / red-teaming** evaluation (prompt injection, jailbreaks, data leakage), use the `scenario-generator` skill instead. The two skills are complementary; many real projects need both.
 
 ## Critical: Information Gathering First
@@ -53,14 +51,14 @@ Once you have enough context, follow these steps in order.
 
 ### Step 0: Install Giskard and a Provider Extra
 
-Giskard v3 requires **Python 3.12 or newer**.
+Giskard requires **Python 3.12 or newer**.
 
 ```bash
 pip install "giskard[openai,scan]"     # or [anthropic,scan], [google,scan], [azure,scan]
 ```
 
 - The provider extra (`openai`, `anthropic`, `google`, `azure`) installs the SDK the LLM judges and embedders need. Bare `giskard-checks` has **no** provider SDK, so `Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`, `Contradiction` and `SemanticSimilarity` will all fail at call time. Prefer `pip install "giskard[openai]"` over `pip install giskard-checks`.
-- The `scan` extra adds `giskard.scan.quality_scan`, the v3 successor to v2's RAGET. Include it whenever the user has a knowledge base.
+- The `scan` extra adds `giskard.scan.quality_scan`, which generates a knowledge-base quality suite for you. Include it whenever the user has a knowledge base.
 
 Then export the provider's API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...). Embedding-backed checks (`SemanticSimilarity`) and `KnowledgeBase` retrieval also call the embeddings endpoint, defaulting to `text-embedding-3-small`.
 
@@ -68,7 +66,7 @@ The generated code imports from `giskard.checks`, `giskard.agents` and (optional
 
 ### Step 1: Decide Between the Automatic Quality Scan and a Hand-Written Suite
 
-v3 ships `quality_scan`, which generates and runs a knowledge-base quality suite for you. Offer it whenever the user has a KB, then layer a hand-written suite on top for the dimensions the scan does not cover.
+`giskard.scan.quality_scan` generates and runs a knowledge-base quality suite for you. Offer it whenever the user has a KB, then layer a hand-written suite on top for the dimensions the scan does not cover.
 
 | Situation | Recommendation |
 |---|---|
@@ -170,7 +168,7 @@ Layer checks so failures surface fast and cheaply:
 Each test question becomes a `Scenario`. Group all scenarios into a `Suite`. Pass the user's agent as `target` at run time, not on each `.interact()`.
 
 Critical RAG-specific patterns:
-- **For groundedness with dynamic context**: If the agent returns retrieved chunks (e.g., `{"answer": ..., "context": [...]}`), use `Groundedness(context_key="trace.last.outputs.context", target_key="trace.last.outputs.answer")`. The field selecting the answer is `target_key` in v3, not `answer_key`.
+- **For groundedness with dynamic context**: If the agent returns retrieved chunks (e.g., `{"answer": ..., "context": [...]}`), use `Groundedness(context_key="trace.last.outputs.context", target_key="trace.last.outputs.answer")`.
 - **For groundedness with context on the interaction**: attach it at `.interact()` time with `metadata={"context": [...]}`, which matches the default `context_key="trace.last.metadata.context"`. Do this when the same static context belongs to the question rather than to the check.
 - **For groundedness with pre-retrieved context**: Pre-retrieve once per question and pass `context=[...]` directly to `Groundedness`. Do this at scenario construction time.
 - **For out-of-scope questions**: Use `Conformity(rule="When the answer is not in the provided context, the agent must explicitly decline or say it doesn't know.")`. Do NOT use `Groundedness` here, since there's no valid context to be grounded in.
@@ -204,7 +202,7 @@ from giskard.checks import (
 )
 
 # 1. Configure the LLM generator used by Groundedness, AnswerRelevance, Conformity, LLMJudge.
-#    Optional in v3 (the default is openai/gpt-4o-mini), but set it explicitly so the
+#    Optional (the default is openai/gpt-4o-mini), but set it explicitly so the
 #    judge model is visible. Use a small fast model: judging is much cheaper than generation.
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 
@@ -278,9 +276,9 @@ if __name__ == "__main__":
 These rules exist because subtle violations cause silent failures or hard errors. Follow them every time.
 
 - ALWAYS use `from giskard.checks import ...` for all check classes; they are all re-exported there. The only separate imports are `from giskard.agents import Generator` and, when using the scan, `from giskard.scan import KnowledgeBase, quality_scan`.
-- ALWAYS select the value under test with `target_key=`. This is the biggest v3 rename: `answer_key` (`Groundedness`, `AnswerRelevance`), `actual_answer_key` (`SemanticSimilarity`), `text_key` (`StringMatching`, `RegexMatching`) and `key` (comparisons) are all gone. Selectors named after a static sibling keep their name: `context` / `context_key`, `reference_text` / `reference_text_key`, `expected_value` / `expected_value_key`.
-- Checks reject unknown keyword arguments (`extra="forbid"`), so a stale field raises `pydantic.ValidationError` at construction rather than being silently ignored. Never guess a field name; look it up in `references/api-reference.md`.
-- `set_default_generator(Generator(model="..."))` is optional in v3 (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
+- ALWAYS select the value under test with `target_key=`, on every check that reads from the trace — including `Groundedness`, `AnswerRelevance`, `SemanticSimilarity`, `StringMatching`, `RegexMatching` and the comparisons. Each of the other selectors is named after its static sibling: `context` / `context_key`, `reference_text` / `reference_text_key`, `expected_value` / `expected_value_key`.
+- Checks reject unknown keyword arguments (`extra="forbid"`), so an invented field name raises `pydantic.ValidationError` at construction. Never guess a field name; look it up in `references/api-reference.md`.
+- `set_default_generator(Generator(model="..."))` is optional (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
 - ALWAYS use the fluent builder API: `Scenario("name").interact(...).check(...)`. NEVER pass `inputs`, `checks`, or `description` as constructor kwargs to `Scenario(...)`; unlike checks, `Scenario` tolerates unknown keys and silently drops them, producing empty scenarios that pass instantly without running anything. (This is the single most common silent failure.)
 - ALWAYS wrap scenarios in a `Suite`. Even a single scenario should go in a Suite, because `Suite` provides `pass_rate`, `print_report()`, JUnit export, and consistent result handling.
 - ALWAYS pass the SUT as `target=` to `suite.run(target=your_agent)`, NOT as `outputs=` in each `.interact()`. This avoids repetition and makes swapping SUTs trivial.
@@ -333,27 +331,6 @@ Consult `references/examples.md` for full worked code:
 - Citation accuracy (regex + ID existence + LLM judge)
 - `quality_scan` alongside a hand-written suite
 
-## Migrating from older Giskard versions
-
-**From v2** (`giskard.rag.generate_testset`, `KnowledgeBase.from_pandas`, `giskard.Model`): there is no in-place upgrade. RAGET's successor is `giskard.scan.quality_scan` with `giskard.scan.KnowledgeBase`, which generates *scenarios* rather than a testset DataFrame, and returns a `SuiteResult` instead of a RAGET report. Old thresholds and report-processing code has to be rebuilt around the scenario/suite result model. `KnowledgeBase.from_pandas` is gone; use `KnowledgeBase.from_texts(list_of_chunks)` or construct `Document` objects directly.
-
-**From an early v3 pre-release**, rewrite these:
-
-| Old | v3 |
-|---|---|
-| `Groundedness(answer_key=...)`, `AnswerRelevance(answer_key=...)` | `target_key=` |
-| `SemanticSimilarity(actual_answer_key=...)` | `target_key=` |
-| `StringMatching(text_key=...)`, `RegexMatching(text_key=...)` | `target_key=` |
-| `Equals(key=...)` and other comparisons | `target_key=` |
-| `LesserThan`, `LesserThanEquals`, `GreaterEquals` | `LessThan`, `LessThanEquals`, `GreaterThanEquals` |
-| comparison `threshold=` | `expected_value=` (or `expected_value_key=`) |
-| `StringMatching(expected=False)` | `Not(check=StringMatching(...))` |
-| `result.pass_rate` assumed to be a float | `float | None`; guard before formatting |
-| `from giskard.agents.generators import Generator` | `from giskard.agents import Generator` |
-| `pip install giskard-checks` for LLM judges | `pip install "giskard[openai]"` |
-
-Anything still passing a removed kwarg now raises `pydantic.ValidationError` rather than silently evaluating the wrong value, so a migrated suite fails loudly rather than turning green for the wrong reason.
-
 ## Troubleshooting
 
 ### User says "I don't have a knowledge base, just an agent"
@@ -374,10 +351,10 @@ Map them to giskard checks:
 Direct them to the `scenario-generator` skill; that's its job. Suggest running both skills: `rag-evaluator` for quality, `scenario-generator` for security. They share the same `Suite` shape so results compose cleanly. `giskard.scan.vulnerability_scan` is the automated counterpart to `quality_scan`.
 
 ### Generated code has import errors
-Verify `from giskard.checks import ...` for all check classes. The only separate imports are `from giskard.agents import Generator` and `from giskard.scan import ...`. If the import itself fails, the environment is on Python < 3.12 or still has Giskard v2 installed.
+Verify `from giskard.checks import ...` for all check classes. The only separate imports are `from giskard.agents import Generator` and `from giskard.scan import ...`. If the import itself fails, check that the environment is on Python 3.12 or newer.
 
 ### `ValidationError: Extra inputs are not permitted`
-A check was given a field it does not have — almost always a pre-v3 selector (`answer_key`, `actual_answer_key`, `text_key`, `key`) or a typo. Rename it to `target_key` or look the field up in `references/api-reference.md`.
+A check was given a field it does not have. If the field was meant to select a value from the trace, it is `target_key`; otherwise look the field up in `references/api-reference.md`.
 
 ### `TypeError: Parameter 'question' is required but not in the injection requirements`
 The SUT's parameter is not named `inputs` (or `trace`). Wrap it: `def agent(inputs: str) -> dict: return qa_chain.invoke(question=inputs)`.

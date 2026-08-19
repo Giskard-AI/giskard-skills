@@ -21,7 +21,7 @@
       "id": 3,
       "name": "advanced-retriever",
       "prompt": "We have a RAG system over our scientific paper corpus. It exposes both an end-to-end query function `def ask(question: str) -> dict` (returns `{'answer': ..., 'cited_paper_ids': [...], 'retrieved_chunks': [...]}`) and a retriever `def retrieve(q, k=10) -> list[ChunkObject]`. I have a labelled set of ~50 questions with the paper IDs that should be retrieved. I want a comprehensive eval covering retrieval quality, groundedness, and citation accuracy.",
-      "expected_output": "Python code that uses the dict structure correctly: target_key='trace.last.outputs.answer' (v3 removed answer_key), context_key for groundedness pointing at retrieved_chunks, FnCheck for recall@k retrieval quality using cited_paper_ids vs labelled paper IDs, custom check or LLMJudge for citation accuracy. Should rename the SUT parameter from `question` to `inputs` or wrap it, since any other required parameter raises TypeError.",
+      "expected_output": "Python code that uses the dict structure correctly: target_key='trace.last.outputs.answer', context_key for groundedness pointing at retrieved_chunks, FnCheck for recall@k retrieval quality using cited_paper_ids vs labelled paper IDs, custom check or LLMJudge for citation accuracy. Should rename the SUT parameter from `question` to `inputs` or wrap it, since any other required parameter raises TypeError.",
       "files": [],
       "assertions": []
     },
