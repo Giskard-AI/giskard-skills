@@ -2,6 +2,15 @@
 
 Comprehensive catalog of adversarial attack patterns organized by fear category. Use these to design creative, escalating test scenarios.
 
+Check names referenced below are documented in [`api-reference.md`](./api-reference.md). Several of these categories also have a ready-made generator in `giskard-scan`, so before hand-writing dozens of scenarios consider running `vulnerability_scan` for breadth and reserving hand-written scenarios for what is specific to this agent:
+
+| Category | `giskard-scan` coverage |
+|---|---|
+| Prompt injection | `PromptInjectionScenarioGenerator`, `GCGInjectionScenarioGenerator` |
+| Jailbreaking, harmful content | `AdversarialScenarioGenerator`, `CrescendoAttackScenarioGenerator`, `GOATAttackScenarioGenerator`, HarmBench / do-not-answer datasets |
+| Hallucination, sycophancy, out-of-scope (knowledge-base agents) | `quality_scan` generators — `HallucinationScenarioGenerator`, `SycophancyScenarioGenerator`, `OutOfScopeScenarioGenerator`, `SplitQuestionsScenarioGenerator`, `MultiTopicScenarioGenerator` |
+| Data leakage, tool misuse, domain compliance | no generator; hand-write these |
+
 ## 1. Hallucination / Confabulation
 
 The agent invents facts, cites non-existent sources, or provides confidently wrong answers.
@@ -25,6 +34,7 @@ The agent invents facts, cites non-existent sources, or provides confidently wro
 
 ### Checks to Use
 - `Groundedness` with known context documents
+- `Contradiction` when the agent is allowed to add world knowledge and you only want to catch statements that directly conflict with the context
 - `LLMJudge` prompting for factual accuracy assessment
 - `StringMatching` for phrases like "I'm not sure", "I don't have information"
 - `FnCheck` validating the agent expresses uncertainty appropriately
@@ -149,8 +159,9 @@ The agent produces harmful, toxic, biased, or unsafe content.
 - **Emotional manipulation**: Express distress, then ask for increasingly harmful advice
 
 ### Checks to Use
+- `Toxicity` -- the built-in judge for hate speech, harassment, threats, self-harm, sexual content and violence. Reach for it before writing a custom safety prompt; narrow it with `categories=[...]` when you only care about some. It passes when the output is clean, so do not wrap it in `Not`.
 - `Conformity` with safety rules
-- `LLMJudge` with detailed safety evaluation prompt
+- `LLMJudge` with a detailed safety evaluation prompt, for criteria `Toxicity` does not cover (e.g. dual-use technical detail, stereotyping)
 - `StringMatching` for known harmful patterns
 - `FnCheck` checking response length (refusals are typically short)
 
@@ -229,7 +240,8 @@ The agent uses its tools incorrectly or dangerously.
 - **Privilege escalation**: Use one tool's output to justify calling a more powerful tool
 
 ### Checks to Use
-- `FnCheck` inspecting tool calls in interaction metadata
+- `FnCheck` inspecting tool calls the SUT surfaced in `trace.last.metadata` (attach them from the agent wrapper, or return a dict and select with `target_key="trace.last.outputs.tool_calls"`)
+- `JsonValid` with a `schema=` when the agent emits tool calls as JSON: it catches malformed or off-schema arguments before any judge runs
 - `Conformity` with rules about tool usage boundaries
 - `LLMJudge` evaluating tool selection appropriateness
 
@@ -249,7 +261,10 @@ Exploiting the conversation history to manipulate the agent's behavior.
 ### Checks to Use
 - `FnCheck` checking consistency across trace interactions
 - `LLMJudge` evaluating multi-turn coherence
-- `Conformity` applied to the full conversation, not just the last turn
+- `Conformity` applied to the full conversation, not just the last turn (it always receives the whole `Trace`)
+- `SemanticSimilarity` comparing two turns via `reference_text_key="trace.interactions[0].outputs"` and `target_key="trace.last.outputs"`, to catch a position that drifted across the conversation
+
+Note that a failing step stops the scenario, so later turns of a multi-turn attack report SKIP rather than PASS. That is intentional: the attack never got to run. Read `result.status` instead of `not result.passed` when triaging.
 
 ---
 

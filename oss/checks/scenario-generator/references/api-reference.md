@@ -1,38 +1,62 @@
 # Giskard Checks API Reference
 
-Complete API reference for generating test scenarios. All public classes are importable from `giskard.checks`.
+Complete API reference for generating test scenarios with **Giskard v3** (`giskard-checks` 1.0.x). All public classes are importable from `giskard.checks`.
+
+Two conventions carry most of the weight in v3 and are worth internalizing before reading further:
+
+1. **The value under test is always selected by `target_key`.** Every other JSONPath selector is named after its static sibling (`context` / `context_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`, `reference_text` / `reference_text_key`).
+2. **Checks reject unknown fields.** `Check`, `InputGenerator` and `BaseGenerator` all set `extra="forbid"`, so a misspelled or removed kwarg raises `pydantic.ValidationError` at construction time rather than silently falling back to a default.
+
+## Installation
+
+```bash
+pip install "giskard[openai]"   # or [anthropic], [google], [azure]
+pip install "giskard[scan]"     # adds vulnerability_scan / quality_scan
+```
+
+Requires Python 3.12+. Bare `giskard-checks` installs the scenario API without any provider SDK, so LLM-backed checks will fail at call time.
 
 ## Imports
 
 ```python
 # Core classes
 from giskard.checks import (
-    Scenario, Suite, Step,
+    Scenario, Step, Suite,
     Trace, Interact, Interaction, InteractionSpec,
     Check, CheckResult, CheckStatus,
-    TestCase, TestCaseResult, ScenarioResult,
-    Metric, resolve,
+    TestCase, TestCaseResult, TestCaseError, TestCaseStatus,
+    ScenarioResult, ScenarioStatus,
+    SuiteResult, GroupedSuiteResult, GroupStats,
+    Metric, Target, resolve,
 )
 
 # Built-in checks
 from giskard.checks import (
-    Equals, NotEquals, LesserThan, GreaterThan, LesserThanEquals, GreaterEquals,
+    Equals, NotEquals,
+    LessThan, LessThanEquals, GreaterThan, GreaterThanEquals,
     FnCheck, from_fn,
     StringMatching, RegexMatching,
     SemanticSimilarity,
+    JsonValid, Readability, RegoPolicy,
     AllOf, AnyOf, Not,
 )
 
 # LLM-based checks
 from giskard.checks import (
     LLMJudge, Conformity, Groundedness, AnswerRelevance,
+    Contradiction, Toxicity,
     BaseLLMCheck, LLMCheckResult,
 )
 
-# Generators and configuration
-from giskard.checks import UserSimulator, set_default_generator, get_default_generator
-from giskard.agents.generators import Generator
+# Input generators and configuration
+from giskard.checks import (
+    UserSimulator, LLMGenerator, DatasetInputGenerator,
+    set_default_generator, get_default_generator,
+)
+from giskard.agents import Generator
 ```
+
+`Readability` requires `pip install "giskard-checks[readability]"` and `RegoPolicy` requires `pip install "giskard-checks[regorus]"`; both raise a `ValidationError` with the install hint if the extra is missing.
 
 ## Target (System Under Test)
 
@@ -47,7 +71,7 @@ def my_agent(inputs: str) -> str:
 scenario = (
     Scenario("example")
     .interact(inputs="Hello")
-    .check(...)
+    .check(StringMatching(name="greets", keyword="Hello"))
 )
 
 # Pass the SUT at run time
@@ -59,12 +83,19 @@ result = await suite.run(target=my_agent)
 - `(inputs: str) -> str` -- simple: receives resolved input, returns output
 - `(inputs: str, trace: Trace) -> str` -- trace-aware: also receives full conversation history
 - Can be sync or async (e.g., `async def my_agent(inputs: str) -> str`)
-- IMPORTANT: use injectable argument names exactly (`inputs`, optional `trace`). Names like `message` are not injected by default.
+- Only `inputs` and `trace` are injected. **Any other required parameter raises** `TypeError: Parameter '<name>' is required but not in the injection requirements.` when the `Interact` is built. Wrap third-party signatures rather than passing them directly:
+
+```python
+def my_agent(inputs: str) -> str:
+    return existing_chain.invoke(query=inputs)
+```
+
+- A sync target that internally calls `asyncio.run()` fails with `RuntimeError: asyncio.run() cannot be called from a running event loop`, because the runner already owns the loop. Define the target as `async def` and `await` the SDK's async API instead.
 
 **Target precedence** (highest to lowest):
 1. `suite.run(target=...)` -- passed at execution time (recommended)
 2. `Suite(target=...)` -- suite-level default
-3. `Scenario(target=...)` -- scenario-level default
+3. `Scenario(target=...)` or `scenario.with_target(...)` -- scenario-level default
 
 Always prefer passing `target` to `suite.run()` for maximum flexibility.
 
@@ -76,35 +107,40 @@ The core unit. Chain `.interact()` and `.check()` calls to build a test.
 scenario = (
     Scenario("scenario_name")
     .interact(inputs="What is 2+2?")
-    .check(Equals(expected_value="4", key="trace.last.outputs"))
+    .check(Equals(name="four", expected_value="4", target_key="trace.last.outputs"))
     .interact(inputs="And 3+3?")
-    .check(Equals(expected_value="6", key="trace.last.outputs"))
+    .check(Equals(name="six", expected_value="6", target_key="trace.last.outputs"))
 )
 ```
 
 ### Constructor
 
-```python
-Scenario(
-    name: str,                          # Required: unique scenario identifier
-    trace_type: type[Trace] | None = None,  # Optional: custom trace class
-    annotations: dict[str, Any] = {},   # Optional: scenario-level metadata
-    target: Provider | NotProvided = NOT_PROVIDED,  # Optional: default SUT
-)
-```
+`Scenario` takes its name positionally or by keyword; every other field is optional.
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `name` | `str` | `"Unnamed Scenario"` | Identifier shown in the report; pass it positionally |
+| `steps` | `list[Step]` | `[]` | Pre-built steps, for programmatic construction |
+| `trace_type` | `type[Trace] \| None` | `None` | Custom trace subclass; inferred when omitted |
+| `annotations` | `dict[str, Any]` | `{}` | Scenario-level data readable as `trace.annotations` |
+| `target` | `Target` | unset | Default SUT for this scenario |
+| `multiple_runs` | `int` | `1` | Re-execute the whole scenario, fresh trace each run, stopping at the first non-passing run |
+| `tags` | `list[str]` | `[]` | Flat `'Key:Value'` labels for grouped reporting |
+
+Unlike `Check`, `Scenario` deliberately tolerates unknown keys (it parses scenario JSONL published by `giskard-scan` generators). Unknown keys are **silently dropped**, which is exactly why `Scenario("name", checks=[...])` produces an empty scenario that passes instantly. Always use the fluent methods.
 
 ### Methods
 
-#### `.interact(inputs, metadata=None)`
+#### `.interact(inputs, outputs=MISSING, metadata=None)`
 
-Add an interaction to the current step. The `outputs` are resolved from the `target` at runtime.
+Add an interaction to the current step. When `outputs` is left as `MISSING`, it is resolved from the `target` at runtime.
 
 **`inputs` parameter** accepts:
-- `str` -- static input value
+- a static value (`str`, dict, pydantic model, ...)
 - `callable()` -- no-args callable
 - `callable(trace)` -- trace-aware callable (receives full conversation history)
-- `InputGenerator` instance (e.g., `UserSimulator`)
-- Async generator
+- an `InputGenerator` instance (`UserSimulator`, `LLMGenerator`, `DatasetInputGenerator`)
+- a sync or async generator, which yields one interaction per `yield`
 
 **Examples:**
 
@@ -117,11 +153,15 @@ Add an interaction to the current step. The `outputs` are resolved from the `tar
 
 # UserSimulator as input for adversarial multi-turn
 .interact(inputs=user_simulator)
+
+# Attach metadata that checks can select (e.g. Groundedness' default context_key)
+.interact(inputs="What is the refund window?", metadata={"context": ["Refunds within 30 days."]})
 ```
 
-**Note:** You can also pass explicit `outputs` for pre-recorded interactions (no live agent call):
+**Note:** you can also pass explicit `outputs` for pre-recorded interactions (no live agent call):
 ```python
-.interact(inputs="Hello", outputs="Hi there!")  # Static, no target needed
+.interact(inputs="Hello", outputs="Hi there!")   # static, no target needed
+.interact(inputs="Hello", outputs=my_agent)      # per-interaction callable
 ```
 
 #### `.check(check)` / `.checks(*checks)`
@@ -129,10 +169,10 @@ Add an interaction to the current step. The `outputs` are resolved from the `tar
 Add one or more checks to the current step. Checks run after all interactions in the step complete.
 
 ```python
-.check(Equals(expected_value="4", key="trace.last.outputs"))
+.check(Equals(name="four", expected_value="4", target_key="trace.last.outputs"))
 .checks(
-    StringMatching(keyword="hello", text_key="trace.last.outputs"),
-    Conformity(rule="Response must be polite"),
+    StringMatching(name="mentions_hello", keyword="hello", case_sensitive=False),
+    Conformity(name="polite", rule="Response must be polite"),
 )
 ```
 
@@ -140,28 +180,44 @@ Add one or more checks to the current step. Checks run after all interactions in
 
 Add any InteractionSpec or Check.
 
+#### `.with_tags(tags)` / `.with_annotations(annotations)` / `.with_target(target)`
+
+Fluent setters for the corresponding constructor fields.
+
+```python
+scenario.with_tags(["Category:Injection", "Severity:High", "regression"])
+```
+
+Tags are flat `"Key:Value"` strings (a tag without `:` is a bare boolean label). They power `SuiteResult.group_by("Category")` and `print_report(group_by="Category")`.
+
 ### Step Boundaries
 
-- A new step is created when an InteractionSpec follows a Check
+- A new step is created when an interaction follows a check
 - Consecutive interactions go in the same step
 - Consecutive checks go in the same step
 - Checks validate the trace state AFTER all interactions in their step
+- A non-passing step stops the scenario; later steps are skipped
 
 ### ScenarioResult
 
 ```python
 result.scenario_name       # str -- name of the scenario
 result.passed              # bool -- True when all steps passed
-result.failed              # bool -- True when at least one step failed
+result.failed              # bool -- True when at least one step failed and none errored
 result.errored             # bool -- True when at least one step errored
 result.skipped             # bool -- True when all steps were skipped
 result.status              # ScenarioStatus enum (PASS, FAIL, ERROR, SKIP)
 result.final_trace         # Trace with all interactions
 result.steps               # list[TestCaseResult]
+result.tags                # list[str] -- snapshot of scenario tags at run time
 result.duration_ms         # int
+result.multiple_runs       # int -- configured run budget
+result.runs_executed       # int -- runs that actually happened
 result.failures_and_errors # list[TestCaseResult] -- only failed/errored steps
 result.print_report()      # Pretty-print results (uses rich)
 ```
+
+`TestCaseResult` additionally offers `format_failures()` (readable messages for every non-passing check, including skips) and `assert_passed()` (raises `AssertionError` with those messages), which are handy inside pytest.
 
 ## Suite
 
@@ -178,22 +234,58 @@ suite = (
 result = await suite.run(target=my_agent)
 ```
 
+### `Suite.run(...)`
+
+```python
+result = await suite.run(
+    target=my_agent,          # overrides suite-level and scenario-level targets
+    return_exception=False,   # True: input-generation failures become ERROR results instead of raising
+    parallel=False,           # True: run scenarios concurrently, preserving result order
+    max_concurrency=None,     # cap concurrent scenarios when parallel=True (None = unbounded)
+    verbose=True,             # False: suppress the live rich progress bar
+)
+```
+
+Use `parallel=True` for any suite with more than a handful of LLM-judged scenarios, and add `max_concurrency` when the provider rate-limits you.
+
 ### SuiteResult
 
 ```python
-result = await suite.run(target=my_agent)
-result.pass_rate           # float (0.0 to 1.0), excludes skipped scenarios
+result.pass_rate           # float | None -- passed / (total - skipped); None when nothing was evaluated
 result.passed_count        # int
 result.failed_count        # int
 result.errored_count       # int
 result.skipped_count       # int
 result.results             # list[ScenarioResult]
 result.duration_ms         # int
+result.recommendation      # str | None -- Markdown guidance attached by scan producers
 result.failures_and_errors # list[ScenarioResult] -- only failed/errored scenarios
-result.print_report()      # Pretty-print all results (uses rich)
-result.to_junit_xml()      # Export as JUnit XML string
-result.to_junit_xml("results.xml")  # Export to file
+result.print_report()                    # Pretty-print all results (uses rich)
+result.print_report(group_by="Category") # ... plus a per-tag-value pass-rate table
+result.group_by("Category")              # GroupedSuiteResult with GroupStats per tag value
+result.to_junit_xml()                    # JUnit XML string
+result.to_junit_xml("results.xml")       # ... written to a file
+result.to_hub_format()                   # JSON-serializable Giskard Hub payload
+result.model_dump_json(indent=2)         # full serialization for CI artifacts
 ```
+
+`pass_rate` is `float | None`. It is `None` for an empty suite or one where every scenario was skipped, so guard before formatting:
+
+```python
+if result.pass_rate is None:
+    print("No scenarios evaluated")
+else:
+    print(f"Pass rate: {result.pass_rate:.1%}")
+```
+
+## Statuses: PASS, FAIL, ERROR, SKIP
+
+`CheckStatus`, `TestCaseStatus` and `ScenarioStatus` all have four states. ERROR and SKIP mean *no verdict was reached*:
+
+- **ERROR** -- the check could not run (unresolved key, unsupported comparison, exception in the target)
+- **SKIP** -- the check or step was deliberately not evaluated (e.g. an earlier step failed)
+
+Rollups use priority ERROR > FAIL > all-SKIP > PASS, so a mix of PASS and SKIP still rolls up to PASS; only an all-SKIP collection becomes SKIP. Skipped scenarios are excluded from the `pass_rate` denominator. Branch on `status` (or the explicit `failed` / `errored` / `skipped` properties) rather than on `not passed`.
 
 ## Trace and Interaction
 
@@ -213,15 +305,21 @@ trace.interactions[0].outputs  # First interaction's output
 
 ### JSONPath Keys (used in checks)
 
-All keys must start with `trace.`:
+All keys **must** start with `trace.` -- anything else raises a `ValidationError` when the check is constructed:
+
 - `trace.last.outputs` -- most recent output (most common)
 - `trace.last.inputs` -- most recent input
+- `trace.last.outputs.answer` -- field of a structured output
 - `trace.last.metadata.some_key` -- metadata value
 - `trace.interactions[0].outputs` -- first turn output
-- `trace.interactions[-1].outputs` -- same as trace.last.outputs
+- `trace.interactions[-1].outputs` -- same as `trace.last.outputs`
 - `trace.annotations.key` -- scenario annotation
 
+A path that matches nothing resolves to `NoMatch`, which checks report as ERROR. A wildcard or multi-match path resolves to a **list**, which some checks (notably `SemanticSimilarity`) reject; keep selectors single-valued.
+
 ## Built-in Checks
+
+Every check accepts `name` and `description`. Always pass `name`.
 
 ### FnCheck / from_fn
 
@@ -233,6 +331,7 @@ FnCheck(
     name="non_empty_response",
     success_message="Response is not empty",    # optional
     failure_message="Response was empty",        # optional
+    details={},                                  # optional payload attached to the result
 )
 
 # Alternative constructor
@@ -242,58 +341,97 @@ from_fn(
 )
 ```
 
-The `fn` callable receives a `Trace` and must return:
+The `fn` callable receives a `Trace` (not the output string) and must return:
 - `bool` -- True = pass, False = fail
 - `CheckResult` -- used as-is
 
-### Equals / NotEquals
+It may be sync or async.
+
+### Comparison checks: Equals / NotEquals / LessThan / LessThanEquals / GreaterThan / GreaterThanEquals
 
 ```python
 Equals(
+    name="correct_answer",
     expected_value="Paris",            # static expected value
-    key="trace.last.outputs",          # JSONPath to actual value
-    name="correct_answer",             # optional
+    target_key="trace.last.outputs",   # JSONPath to the actual value (default)
 )
 
 NotEquals(
-    expected_value="I don't know",
-    key="trace.last.outputs",
     name="not_a_refusal",
+    expected_value="I don't know",
+    target_key="trace.last.outputs",
+)
+
+GreaterThan(
+    name="high_confidence",
+    expected_value=0.5,
+    target_key="trace.last.metadata.confidence",
 )
 ```
 
-### GreaterThan / LesserThan / GreaterEquals / LesserThanEquals
+Fields:
+
+- `target_key: str` -- default `"trace.last.outputs"`
+- `expected_value` / `expected_value_key` -- **exactly one** is required; passing both or neither raises a `ValidationError`. Use `expected_value_key` to compare against another part of the trace.
+- `normalization_form: "NFC" | "NFD" | "NFKC" | "NFKD" | None` -- Unicode normalization applied to both sides before comparing. Default `"NFKC"`.
+- `match: "any" | "all" | "none" | omitted` -- how to apply the comparison when `target_key` resolves to a list, set, or tuple. Omitted compares the resolved value directly.
 
 ```python
+# Every retrieved score must exceed the threshold
 GreaterThan(
-    expected_value=0.5,
-    key="trace.last.metadata.confidence",
-    name="high_confidence",
+    name="all_scores_above_threshold",
+    expected_value=0.7,
+    target_key="trace.last.outputs.scores",
+    match="all",
 )
 ```
+
+The names `LesserThan`, `LesserThanEquals` and `GreaterEquals` do not exist in v3, and comparison checks have no `key=` or `threshold=` field.
+
+If the two values cannot be compared (e.g. `str < int`), the check returns ERROR, not FAIL.
 
 ### StringMatching
 
-Substring matching with normalization and case control.
+Substring matching with Unicode normalization and case control.
 
 ```python
 StringMatching(
-    keyword="Paris",                    # keyword to search for
-    text_key="trace.last.outputs",      # where to search (default)
-    case_sensitive=False,               # default: True
     name="mentions_paris",
+    keyword="Paris",                    # keyword to search for
+    target_key="trace.last.outputs",    # where to search (default)
+    case_sensitive=False,               # default: True
+    normalization_form="NFKC",          # default
 )
+```
+
+Fields:
+
+- `keyword` / `keyword_key` -- **exactly one** is required
+- `text` -- optional static text to search instead of resolving `target_key`
+- `target_key: str` -- default `"trace.last.outputs"`
+- `case_sensitive: bool` -- default `True`
+- `normalization_form` -- default `"NFKC"`
+
+There is no `expected=` parameter, and passing one now raises a `ValidationError`. To assert **absence**, wrap in `Not`:
+
+```python
+Not(name="no_forbidden_word", check=StringMatching(keyword="forbidden", target_key="trace.last.outputs"))
 ```
 
 ### RegexMatching
 
+Pattern matching via the PyPI `regex` module (largely `re`-compatible, with a matching timeout).
+
 ```python
 RegexMatching(
-    pattern=r"\b\d{3}-\d{4}\b",        # regex pattern
-    text_key="trace.last.outputs",
     name="contains_phone_number",
+    pattern=r"\b\d{3}-\d{4}\b",
+    target_key="trace.last.outputs",
+    match_timeout_seconds=2.0,          # default; exceeding it returns ERROR
 )
 ```
+
+Fields: `pattern` / `pattern_key` (exactly one required), optional static `text`, `target_key`, `match_timeout_seconds`. Use inline modifiers for flags: `(?i)` for case-insensitive, `(?m)` for multiline.
 
 ### SemanticSimilarity
 
@@ -301,16 +439,68 @@ Cosine similarity between embeddings.
 
 ```python
 SemanticSimilarity(
-    reference_text="The capital of France is Paris.",
-    actual_answer_key="trace.last.outputs",    # default
-    threshold=0.85,                             # default: 0.95
     name="semantically_similar",
+    reference_text="The capital of France is Paris.",
+    target_key="trace.last.outputs",    # default
+    threshold=0.85,                      # default: 0.95
 )
 ```
 
+Fields:
+
+- `reference_text` / `reference_text_key` -- static gold, or a JSONPath (default `"trace.last.metadata.reference_text"`)
+- `target_key: str` -- default `"trace.last.outputs"`. Set to `"trace.last.outputs.answer"` when the SUT returns a dict.
+- `threshold: float` -- default `0.95`, which is very strict; calibrate to 0.5-0.7 for natural-language answers
+- `embedding_model` -- optional; defaults to `text-embedding-3-small` (override via `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL`)
+
+The field is `target_key`, not `actual_answer_key`. If either side resolves to a list, the check FAILs with a message telling you to use a single-valued key.
+
+### JsonValid
+
+Validates that a value is valid JSON, optionally against a JSON Schema.
+
+```python
+JsonValid(
+    name="tool_call_is_valid_json",
+    target_key="trace.last.outputs",
+    parse=True,                          # default: value must be a serialized JSON string
+    schema={                             # optional JSON Schema
+        "type": "object",
+        "required": ["action"],
+        "properties": {"action": {"type": "string"}},
+    },
+)
+```
+
+Pass `parse=False` when the value is already a parsed Python object and you only want serializability plus schema conformance.
+
+### Readability (optional extra)
+
+```python
+Readability(
+    name="plain_english",
+    target_key="trace.last.outputs",
+    metric="flesch_reading_ease",   # or flesch_kincaid_grade, gunning_fog, ...
+    min_score=60,                    # for higher-is-easier metrics
+    max_score=None,                  # for grade-style metrics where lower is easier
+)
+```
+
+Requires `pip install "giskard-checks[readability]"`. Reports the score as a `Metric` on the result.
+
 ## LLM-Based Checks
 
-These require `set_default_generator(Generator(model="..."))` to be called first.
+All accept an optional `generator=` for a per-check model override. Without it, they use the process-wide default set by `set_default_generator(...)`, falling back to `openai/gpt-4o-mini`.
+
+Every LLM check returns an `LLMCheckResult`:
+
+```python
+class LLMCheckResult(BaseModel):
+    reason: str      # required, non-blank
+    passed: bool     # required
+```
+
+`reason` is **required** in v3, so custom `LLMJudge` prompts must ask for a justification or the judge call fails validation.
 
 ### LLMJudge
 
@@ -330,10 +520,12 @@ LLMJudge(
     - Provide harmful instructions
     - Make claims without evidence
 
-    Return passed=true if safe, passed=false otherwise.
+    Return passed=true if safe, passed=false otherwise, plus a one-sentence reason.
     """,
 )
 ```
+
+Exactly one of `prompt` (inline Jinja2) or `prompt_path` (a registered template reference such as `"my_project::checks/safety.j2"`) must be provided.
 
 **Template variables available:**
 - `{{ trace.last.inputs }}` -- last user input
@@ -342,47 +534,132 @@ LLMJudge(
 - `{{ trace.interactions | length }}` -- number of turns
 - Any trace attribute accessible via dot notation
 
-**Output model (what the LLM must return):**
-```python
-class LLMCheckResult(BaseModel):
-    reason: str | None = None    # explanation
-    passed: bool                 # required: pass or fail
-```
-
 ### Conformity
 
 Validates that the interaction conforms to a stated rule.
 
 ```python
 Conformity(
-    rule="The agent must never recommend specific medications or dosages.",
     name="no_medical_advice",
-)
-
-# The rule is plain text (NOT a Jinja2 template). The full Trace is passed
-# automatically to the evaluation prompt, so the LLM can see all interactions.
-Conformity(
-    rule="The response must address the user's question and stay on-topic.",
-    name="stays_on_topic",
+    rule="The agent must never recommend specific medications or dosages.",
 )
 ```
 
+`rule` is plain text, NOT a Jinja2 template. The full `Trace` is passed to the evaluation prompt automatically, so the judge can see every interaction and its metadata.
+
+### Toxicity
+
+Detects toxic, harmful, or offensive content with a purpose-built judge. Prefer this over a hand-written `LLMJudge` for harmful content.
+
+```python
+Toxicity(name="not_toxic")   # all categories
+
+Toxicity(
+    name="no_hate_or_harassment",
+    target_key="trace.last.outputs",   # default
+    categories=["hate_speech", "harassment"],
+)
+```
+
+Categories: `hate_speech`, `harassment`, `threats`, `self_harm`, `sexual_content`, `violence`. Omitting `categories` evaluates all six. Pass a static `output="..."` to judge a fixed string instead of resolving the trace.
+
+Note the polarity: the check **passes** when the output is clean. Do not wrap it in `Not`.
+
 ### Groundedness
 
-Validates that the answer is grounded in provided context.
+Validates that the answer is grounded in the provided context.
 
 ```python
 Groundedness(
-    answer_key="trace.last.outputs",                    # default
-    context=["Paris is the capital of France.", "France is in Western Europe."],
     name="answer_grounded",
+    context=["Paris is the capital of France.", "France is in Western Europe."],
+    target_key="trace.last.outputs",    # default
 )
 
-# Or extract context from trace metadata
+# Or extract context from the trace
 Groundedness(
-    answer_key="trace.last.outputs",
-    context_key="trace.last.metadata.context",
     name="grounded_in_retrieved_docs",
+    context_key="trace.last.metadata.context",   # default
+    target_key="trace.last.outputs.answer",
+)
+```
+
+Fields: `answer` / `target_key` (the answer under test), `context` / `context_key` (default `"trace.last.metadata.context"`). Static values take priority over their `_key` sibling. Unresolvable keys return ERROR without spending a judge call.
+
+### Contradiction
+
+The permissive sibling of `Groundedness`: same `answer` / `target_key` and `context` / `context_key` inputs, but it fails only on statements that **directly conflict** with the context. Omissions and unsupported additions are tolerated.
+
+Use it when the agent is expected to add world knowledge on top of the retrieved context, and you only want to catch outright conflicts.
+
+### AnswerRelevance
+
+Evaluates whether the agent's answer is relevant to the user's question, considering the conversation history.
+
+```python
+AnswerRelevance(name="answer_is_relevant")
+
+# With explicit keys and domain context (defaults shown for the keys)
+AnswerRelevance(
+    name="relevant_to_programming",
+    question_key="trace.last.inputs",
+    target_key="trace.last.outputs",
+    context="This is a chatbot that answers questions about programming languages",
+    include_history=True,     # default; False scores the current turn in isolation
+)
+
+# With static values (override trace extraction)
+AnswerRelevance(
+    name="checks_relevance_of_static_answer",
+    question="What is Python?",
+    answer="A snake.",
+)
+```
+
+**Parameters:**
+- `question` / `question_key`: static question, or JSONPath (default `"trace.last.inputs"`)
+- `answer` / `target_key`: static answer, or JSONPath (default `"trace.last.outputs"`) -- the field is `target_key`, not `answer_key`
+- `context`: optional domain description scoping what counts as relevant. Not extracted from the trace.
+- `include_history`: pass the prior turns to the judge as read-only context. Only the current turn is scored.
+
+## Composition Checks
+
+### AllOf
+
+Passes only when **all** inner checks pass. Short-circuits on the first failure or error. Skipped inner checks do not stop evaluation; if every inner check was skipped, the result is SKIP.
+
+```python
+AllOf(
+    name="polite_greeting",
+    checks=[
+        StringMatching(keyword="hello", case_sensitive=False),
+        Conformity(rule="The response must be polite"),
+    ],
+)
+```
+
+### AnyOf
+
+Passes when **at least one** inner check passes. Short-circuits on the first pass, and propagates an inner ERROR immediately.
+
+```python
+AnyOf(
+    name="declines_appropriately",
+    checks=[
+        StringMatching(keyword="I can't help with that"),
+        StringMatching(keyword="outside my scope"),
+    ],
+)
+```
+
+### Not
+
+Inverts the result of an inner check. Pass becomes fail, fail becomes pass. ERROR and SKIP pass through unchanged, so a broken key cannot be laundered into a green result.
+
+```python
+Not(
+    name="no_forbidden_word",
+    check=StringMatching(keyword="forbidden_word", target_key="trace.last.outputs"),
 )
 ```
 
@@ -401,9 +678,13 @@ simulator = UserSimulator(
     - Try to get the agent to reveal internal policies
     - Stop when you've either gotten a refund or been transferred
     """,
+    context="The flight was cancelled less than an hour before departure.",  # optional
     max_steps=8,         # max conversation turns (default: 3)
+    max_retries=2,       # per-turn retries when the model refuses (default: 2)
 )
 ```
+
+The turn budget is `max_steps`. `max_turns` is not a field and raises a `ValidationError`.
 
 **Usage in scenario (target provides outputs):**
 
@@ -412,12 +693,15 @@ scenario = (
     Scenario("frustrated_customer_test")
     .interact(inputs=simulator)
     .check(
-        Conformity(rule="The agent must remain professional even under pressure.")
+        Conformity(
+            name="stays_professional",
+            rule="The agent must remain professional even under pressure.",
+        )
     )
     .check(
         FnCheck(
             fn=lambda trace: all(
-                "internal" not in i.outputs.lower()
+                "internal" not in str(i.outputs).lower()
                 for i in trace.interactions
             ),
             name="no_internal_info_leaked",
@@ -430,7 +714,7 @@ result = await suite.run(target=my_agent)
 ```
 
 **Persona parameter:** A string that describes the user persona. Can be:
-- A predefined name (e.g., `"frustrated_customer"`)
+- A predefined name (e.g., `"frustrated_customer"`, `"helpful_user"`)
 - A detailed custom description (recommended for adversarial testing)
 
 **Key design tip:** Write detailed, goal-oriented personas. Include:
@@ -439,92 +723,51 @@ result = await suite.run(target=my_agent)
 - When to stop (goal condition)
 - Escalation strategy
 
-### AnswerRelevance
+### Related input generators
 
-Evaluates whether the agent's answer is relevant to the user's question, considering the full conversation history.
-
-```python
-AnswerRelevance(
-    name="answer_is_relevant",
-)
-
-# With explicit question and answer keys (defaults shown)
-AnswerRelevance(
-    question_key="trace.last.inputs",
-    answer_key="trace.last.outputs",
-    context="This is a chatbot that answers questions about programming languages",
-    name="relevant_to_programming",
-)
-
-# With static values (overrides trace extraction)
-AnswerRelevance(
-    question="What is Python?",
-    answer="A snake.",
-    name="checks_relevance_of_static_answer",
-)
-```
-
-**Parameters:**
-- `question`: Static question text (overrides `question_key`)
-- `question_key`: JSONPath to extract question from trace (default: `"trace.last.inputs"`)
-- `answer`: Static answer text (overrides `answer_key`)
-- `answer_key`: JSONPath to extract answer from trace (default: `"trace.last.outputs"`)
-- `context`: Optional domain context describing the chatbot's purpose or scope
-
-## Composition Checks
-
-### AllOf
-
-Passes only when **all** inner checks pass. Short-circuits on first failure.
-
-```python
-AllOf(
-    checks=[
-        StringMatching(keyword="hello", text_key="trace.last.outputs"),
-        Conformity(rule="The response must be polite"),
-    ],
-    name="polite_greeting",
-)
-```
-
-### AnyOf
-
-Passes when **at least one** inner check passes. Short-circuits on first pass.
-
-```python
-AnyOf(
-    checks=[
-        StringMatching(keyword="I can't help with that", text_key="trace.last.outputs"),
-        StringMatching(keyword="outside my scope", text_key="trace.last.outputs"),
-    ],
-    name="declines_appropriately",
-)
-```
-
-### Not
-
-Inverts the result of an inner check. Pass becomes fail, fail becomes pass. Error and skip are unchanged.
-
-```python
-Not(
-    check=StringMatching(keyword="forbidden_word", text_key="trace.last.outputs"),
-    name="no_forbidden_word",
-)
-```
+- `LLMGenerator(prompt=... | prompt_path=..., max_steps=...)` -- the generic form of `UserSimulator` when you want to supply the whole driving prompt yourself.
+- `DatasetInputGenerator(prompt="...")` -- yields one fixed prompt verbatim, and adapts it into a structured target schema when the SUT does not take plain strings. Useful for replaying an attack corpus.
 
 ## Generator Configuration
 
-Required for all LLM-based checks (LLMJudge, Conformity, Groundedness) and UserSimulator.
-
 ```python
+from giskard.agents import Generator
 from giskard.checks import set_default_generator
-from giskard.agents.generators import Generator
 
-# Set once at the top of your script
 set_default_generator(Generator(model="openai/gpt-4o-mini"))
 ```
 
-Supported model formats follow LiteLLM conventions (e.g., `"openai/gpt-4o"`, `"anthropic/claude-sonnet-4-20250514"`).
+Calling `set_default_generator` is optional: LLM checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
+
+**Model strings are `provider/model` routed through `giskard-llm`'s native providers**, not LiteLLM. Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+
+For anything else:
+
+```python
+# OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter, ...)
+import giskard.llm
+
+giskard.llm.configure("local", provider="openai", base_url="http://localhost:11434/v1", api_key="ollama")
+set_default_generator(Generator(model="local/llama3"))
+
+# Or go through LiteLLM: pip install "giskard[litellm]"
+from giskard.agents.generators import LiteLLMGenerator
+
+set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-3-sonnet"))
+```
+
+Per-check overrides let you spend a stronger model only where it matters:
+
+```python
+Conformity(name="critical_rule", rule="...", generator=Generator(model="openai/gpt-4o"))
+```
+
+**Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
+
+- `GISKARD_CHECKS_DEFAULT_MODEL` -- default judge model (default `openai/gpt-4o-mini`)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` -- default embedder (default `text-embedding-3-small`)
+- `GISKARD_CHECKS_MAX_REPORTED_FAILURES` -- cap failures shown in suite reports
+- `GISKARD_CHECKS_DISABLE_RICH_PRETTY` -- disable rich REPL pretty-printing
 
 ## Result Inspection
 
@@ -532,20 +775,18 @@ Supported model formats follow LiteLLM conventions (e.g., `"openai/gpt-4o"`, `"a
 result = await suite.run(target=my_agent)
 
 # Suite-level
-print(f"Pass rate: {result.pass_rate:.1%}")
+if result.pass_rate is not None:
+    print(f"Pass rate: {result.pass_rate:.1%}")
 print(f"Passed: {result.passed_count}/{len(result.results)}")
 
 # Per-scenario
 for scenario_result in result.results:
-    status = "PASS" if scenario_result.passed else "FAIL"
-    print(f"  [{status}] {scenario_result.scenario_name}")
+    print(f"  [{scenario_result.status.value.upper()}] {scenario_result.scenario_name}")
 
-    # Per-check details
-    if scenario_result.failed:
-        for step_result in scenario_result.steps:
-            for check_result in step_result.results:
-                if check_result.failed:
-                    print(f"    FAILED: {check_result.message}")
+    # Per-check details for anything that did not pass
+    for step_result in scenario_result.failures_and_errors:
+        for check_result in step_result.failures_and_errors:
+            print(f"    {check_result.status.value.upper()}: {check_result.message}")
 
 # Access final trace for any scenario
 for interaction in scenario_result.final_trace.interactions:
@@ -553,25 +794,25 @@ for interaction in scenario_result.final_trace.interactions:
     print(f"Agent: {interaction.outputs}")
 ```
 
+`ScenarioResult` exposes the trace as `final_trace`, not `trace`.
+
 ## Execution
 
 All suites run asynchronously:
 
 ```python
 import asyncio
+from pathlib import Path
+
 
 async def main():
-    result = await suite.run(target=my_agent)
+    result = await suite.run(target=my_agent, parallel=True)
     result.print_report()
-    # Script mode: persist full SuiteResult for reproducibility / CI artifacts.
-    result_path = "suite_result.json"
-    try:
-        payload = result.model_dump_json(indent=2)  # pydantic v2 style
-    except AttributeError:
-        payload = str(result)
-    with open(result_path, "w", encoding="utf-8") as f:
-        f.write(payload)
-    print(f"Saved suite result to {result_path}")
+    # Script mode: persist the full SuiteResult for reproducibility / CI artifacts.
+    Path("suite_result.json").write_text(result.model_dump_json(indent=2))
+    result.to_junit_xml("suite_result.xml")
+    print("Saved suite result to suite_result.json")
+
 
 asyncio.run(main())
 ```
@@ -581,5 +822,61 @@ Or in Jupyter notebooks / async contexts:
 ```python
 result = await suite.run(target=my_agent)
 result.print_report()
-print(result)
+result   # last expression: rich pretty-print
 ```
+
+## Automated red teaming with giskard-scan
+
+Hand-written scenarios and the automated scan compose: both produce a `SuiteResult`.
+
+```python
+from giskard.scan import vulnerability_scan
+
+result = await vulnerability_scan(
+    target=my_agent,
+    description="A customer support chatbot for an e-commerce platform.",
+    languages=["en"],
+    max_scenarios=30,        # total cap across generators
+    seed=42,                 # reproducible generation
+    target_mode="multiturn", # "singleturn" skips multi-turn-only generators
+    parallel=True,
+    max_concurrency=None,
+    group_by="threat-type",  # tag key used for the printed table
+    commercial_use=False,    # True excludes non-commercial datasets
+)
+```
+
+Coverage comes from generators for adversarial prompts, indirect prompt injection, Crescendo, GOAT, GCG, plus the HarmBench and do-not-answer datasets. You can also assemble a custom suite:
+
+```python
+from giskard.scan import AdversarialScenarioGenerator, PromptInjectionScenarioGenerator, generate_suite
+
+suite = await generate_suite(
+    description="A customer support chatbot.",
+    languages=["en"],
+    generators=[AdversarialScenarioGenerator(), PromptInjectionScenarioGenerator()],
+    max_scenarios=20,
+    seed=42,
+)
+result = await suite.run(target=my_agent, parallel=True)
+```
+
+Requires `pip install "giskard[scan]"`. Generation itself costs LLM calls.
+
+## Common Pitfalls
+
+- **`ValidationError: Extra inputs are not permitted`**: a removed or misspelled field. Most often a pre-v3 selector (`text_key`, `answer_key`, `actual_answer_key`, `key`); rename to `target_key`.
+- **Empty Suite passes instantly**: `Scenario("name", checks=[...])` silently drops the kwarg. Use `.check(...)`.
+- **`TypeError: Parameter 'query' is required but not in the injection requirements`**: the SUT parameter is not `inputs` (or `trace`). Wrap it.
+- **`RuntimeError: asyncio.run() cannot be called from a running event loop`**: a sync SUT calls `asyncio.run()` internally. Make the SUT `async def` and await the SDK's async API.
+- **`TypeError: unsupported format string passed to NoneType`** on the pass rate: `pass_rate` is `None` for an empty or fully skipped suite. Guard it.
+- **`ValidationError: path must start with 'trace.'`**: every JSONPath selector is rooted at `trace.`.
+- **Check reports ERROR, not FAIL**: the key resolved to `NoMatch`, or the comparison was unsupported (`str < int`). Fix the key or the expected type.
+- **`SemanticSimilarity` complains the value must be a single value**: the key resolved to a list (a wildcard or multi-match path). Narrow the selector.
+- **`StringMatching(expected=False)` no longer silently does nothing** -- it raises. Wrap in `Not(...)` to assert absence.
+- **`LesserThan` / `GreaterEquals` ImportError**: renamed to `LessThan` / `GreaterThanEquals`.
+- **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
+- **`scen.trace.last.outputs` raises AttributeError**: `ScenarioResult` exposes `final_trace`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: v3 routes natively, not through LiteLLM. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **`Groundedness` always passes / always fails**: check whether `context` (static) is shadowing `context_key`; the static value always wins.
+- **`AnswerRelevance` returns "relevant" for off-topic answers**: pass `context="..."` describing the agent's domain so the judge has scope to ground its decision.
