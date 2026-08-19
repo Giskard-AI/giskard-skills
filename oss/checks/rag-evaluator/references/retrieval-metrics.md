@@ -214,7 +214,7 @@ async def is_relevant_llm(
 
 `Generator` is imported from `giskard.agents` (not `giskard.agents.generators`), and `generator.chat(...)` returns a `ChatWorkflow` you refine with `.with_output(...)` / `.with_inputs(...)` before `await ...run()`. The structured result is on `chat.output`. Reuse the judge configured for the suite via `giskard.checks.get_default_generator()` rather than constructing a second one.
 
-This is slow and costs LLM calls per retrieved doc. Sample a subset of queries if you go this route. Consider using a smaller, faster judge (e.g., `openai/gpt-4o-mini`).
+This is slow and costs LLM calls per retrieved doc. Sample a subset of queries if you go this route, and use the cheapest tier your provider offers (e.g. `openai/gpt-5.6-luna`) — a binary relevance call does not need a frontier model.
 
 ---
 

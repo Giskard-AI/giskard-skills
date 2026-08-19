@@ -25,7 +25,7 @@ from giskard.checks import (
     LLMJudge, Conformity, Toxicity, UserSimulator, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Wire up your actual agent
 def support_agent(inputs: str) -> str:
@@ -276,7 +276,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Your RAG system interface
 def rag_agent(inputs: str) -> str:
@@ -455,7 +455,7 @@ from giskard.checks import (
     UserSimulator, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Your chatbot function
 def chatbot(inputs: str) -> str:
@@ -691,7 +691,7 @@ from giskard.checks import (
     LLMJudge, Conformity, UserSimulator, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Your health information agent
 def health_agent(inputs: str) -> str:
@@ -893,7 +893,7 @@ from pathlib import Path
 from giskard.agents import Generator
 from giskard.checks import Scenario, Suite, Conformity, set_default_generator
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Your agent
 def my_agent(inputs: str) -> str:
@@ -975,7 +975,7 @@ from giskard.checks import (
     UserSimulator, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Your agent
 def my_agent(inputs: str) -> str:
@@ -1100,7 +1100,7 @@ from giskard.agents import Generator
 from giskard.checks import Conformity, Scenario, Suite, set_default_generator
 from giskard.scan import vulnerability_scan
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 AGENT_DESCRIPTION = (
     "A customer support chatbot for an e-commerce platform. It answers questions "

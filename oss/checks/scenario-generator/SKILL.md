@@ -134,9 +134,8 @@ from giskard.checks import (
 )
 
 # 1. Configure the LLM generator used by the judges and UserSimulator.
-#    Optional (the default is openai/gpt-4o-mini), but be explicit so the
-#    judge model is visible in the script.
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+#    Name a current model explicitly; the built-in fallback is a legacy one.
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # 2. Define the SUT (System Under Test) -- user replaces this
 # IMPORTANT: parameter names must be `inputs` (and optional `trace`); any other
@@ -176,7 +175,7 @@ if __name__ == "__main__":
 - ALWAYS use `from giskard.checks import ...` as the top-level import for scenarios, suites, checks and `UserSimulator`. The only separate import is `from giskard.agents import Generator`.
 - ALWAYS select the value under test with `target_key=`, on every check that reads from the trace. Each of the other selectors is named after its static sibling: `context` / `context_key`, `expected_value` / `expected_value_key`, `keyword` / `keyword_key`, `pattern` / `pattern_key`, `reference_text` / `reference_text_key`.
 - Checks reject unknown keyword arguments (`extra="forbid"`), so an invented field name raises `pydantic.ValidationError` at construction time. Never guess — look the field up in `references/api-reference.md`.
-- `set_default_generator(...)` is optional (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
+- ALWAYS call `set_default_generator(Generator(model="..."))` and name a current model. It is technically optional, but the built-in fallback is `openai/gpt-4o-mini` — a legacy model no longer in OpenAI's recommended lineup — so relying on it silently pins the judge to a stale model. See `references/api-reference.md` for current model IDs per provider.
 - ALWAYS use the fluent builder API: `Scenario("name").interact(...).check(...)`. NEVER pass `inputs`, `checks`, `description`, or `user` as constructor kwargs to `Scenario(...)` -- unlike checks, `Scenario` tolerates unknown keys and silently drops them, producing empty scenarios that pass instantly without running anything.
 - ALWAYS wrap scenarios in a `Suite` -- never output standalone `scenario.run()` calls.
 - ALWAYS pass the SUT (System Under Test) as `target` to `suite.run(target=your_agent)`, NOT as `outputs=` in each `.interact()`. This avoids repetition and makes it trivial to swap SUTs.

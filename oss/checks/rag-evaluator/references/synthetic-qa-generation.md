@@ -171,7 +171,7 @@ from pathlib import Path
 from giskard.agents import Generator
 from pydantic import BaseModel, Field
 
-generator = Generator(model="openai/gpt-4o-mini")
+generator = Generator(model="openai/gpt-5.6-terra")
 
 
 class FactualQA(BaseModel):

@@ -435,12 +435,24 @@ LLM-backed checks (`Groundedness`, `Contradiction`, `AnswerRelevance`, `Conformi
 from giskard.agents import Generator
 from giskard.checks import set_default_generator
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 ```
 
-Calling `set_default_generator` is optional: checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
+Always name the judge model explicitly. `set_default_generator` is technically optional, but the built-in fallback is `openai/gpt-4o-mini` — a legacy model no longer in OpenAI's recommended lineup — so omitting the call silently pins every judge to a stale model.
 
-For best speed/cost: pick your provider's cheapest fast-tier model — judging is much cheaper than generation, and the judge does not need to be the same model as the agent.
+### Picking a judge model
+
+Judging is much cheaper than generation, and the judge does not need to be the same model as the agent, so a mid-tier model is the right default. Reserve a frontier model for the checks whose verdict you actually argue about — typically `Groundedness` on the scenarios that gate a release.
+
+| Role | OpenAI | Anthropic | Google |
+|---|---|---|---|
+| Default judge | `openai/gpt-5.6-terra` | `anthropic/claude-sonnet-5` | `google/gemini-3.7-flash` |
+| Cheap, high-volume | `openai/gpt-5.6-luna` | `anthropic/claude-haiku-4-5` | `google/gemini-3.5-flash-lite` |
+| Frontier, for critical checks | `openai/gpt-5.6-sol` | `anthropic/claude-opus-5` | `google/gemini-3.1-pro-preview` |
+
+Model line-ups turn over every few months, so confirm against the provider's current model list before pinning one in a long-lived suite. Prefer a pinned ID over a `-latest` alias: an alias that silently changes underneath you turns judge drift into unexplained suite churn. Note that Gemini's Pro tier is preview-stage, which carries a shorter deprecation notice period than stable models.
+
+Changing the judge model re-baselines the suite. Expect a handful of borderline verdicts to flip, and re-run the whole suite rather than comparing a new judge's results against an old report.
 
 **Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
 
@@ -451,22 +463,22 @@ For anything else:
 import giskard.llm
 
 giskard.llm.configure("local", provider="openai", base_url="http://localhost:11434/v1", api_key="ollama")
-set_default_generator(Generator(model="local/llama3"))
+set_default_generator(Generator(model="local/gpt-oss-20b"))
 
 # Or go through LiteLLM: pip install "giskard[litellm]"
 from giskard.agents.generators import LiteLLMGenerator
 
-set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-3-sonnet"))
+set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-sonnet-5"))
 ```
 
 **Variants**:
 
-- **Per-check override**: pass `generator=Generator(model="openai/gpt-4o")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
+- **Per-check override**: pass `generator=Generator(model="openai/gpt-5.6-sol")` to a single check to use a stronger judge there (e.g., for `Groundedness` on critical scenarios).
 
 **Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
 
-- `GISKARD_CHECKS_DEFAULT_MODEL` — default judge model (default `openai/gpt-4o-mini`)
-- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` — default embedder (default `text-embedding-3-small`)
+- `GISKARD_CHECKS_DEFAULT_MODEL` — judge model used when no generator is set (defaults to the legacy `openai/gpt-4o-mini`; set this or call `set_default_generator`)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` — default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option)
 - `GISKARD_CHECKS_MAX_REPORTED_FAILURES` — cap failures shown in suite reports
 - `GISKARD_CHECKS_DISABLE_RICH_PRETTY` — disable rich REPL pretty-printing
 

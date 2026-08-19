@@ -488,7 +488,7 @@ Requires `pip install "giskard-checks[readability]"`. Reports the score as a `Me
 
 ## LLM-Based Checks
 
-All accept an optional `generator=` for a per-check model override. Without it, they use the process-wide default set by `set_default_generator(...)`, falling back to `openai/gpt-4o-mini`.
+All accept an optional `generator=` for a per-check model override. Without it, they use the process-wide default set by `set_default_generator(...)`. See [Picking a judge model](#picking-a-judge-model) for current model IDs.
 
 Every LLM check returns an `LLMCheckResult`:
 
@@ -732,10 +732,22 @@ result = await suite.run(target=my_agent)
 from giskard.agents import Generator
 from giskard.checks import set_default_generator
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 ```
 
-Calling `set_default_generator` is optional: LLM checks fall back to `openai/gpt-4o-mini`, or whatever `GISKARD_CHECKS_DEFAULT_MODEL` specifies. Set it explicitly anyway so the judge model is visible in the script.
+Always name the judge model explicitly. `set_default_generator` is technically optional, but the built-in fallback is `openai/gpt-4o-mini` — a legacy model no longer in OpenAI's recommended lineup — so omitting the call silently pins every judge to a stale model.
+
+### Picking a judge model
+
+Judging is much cheaper than generation, so a mid-tier model is the right default; reserve a frontier model for the checks whose verdict you actually argue about.
+
+| Role | OpenAI | Anthropic | Google |
+|---|---|---|---|
+| Default judge | `openai/gpt-5.6-terra` | `anthropic/claude-sonnet-5` | `google/gemini-3.7-flash` |
+| Cheap, high-volume | `openai/gpt-5.6-luna` | `anthropic/claude-haiku-4-5` | `google/gemini-3.5-flash-lite` |
+| Frontier, for critical checks | `openai/gpt-5.6-sol` | `anthropic/claude-opus-5` | `google/gemini-3.1-pro-preview` |
+
+Model line-ups turn over every few months, so confirm against the provider's current model list before pinning one in a long-lived suite. Prefer a pinned ID over a `-latest` alias: an alias that silently changes underneath you turns judge drift into unexplained suite churn. Note that Gemini's Pro tier is preview-stage, which carries a shorter deprecation notice period than stable models.
 
 **Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
 
@@ -746,24 +758,24 @@ For anything else:
 import giskard.llm
 
 giskard.llm.configure("local", provider="openai", base_url="http://localhost:11434/v1", api_key="ollama")
-set_default_generator(Generator(model="local/llama3"))
+set_default_generator(Generator(model="local/gpt-oss-20b"))
 
 # Or go through LiteLLM: pip install "giskard[litellm]"
 from giskard.agents.generators import LiteLLMGenerator
 
-set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-3-sonnet"))
+set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-sonnet-5"))
 ```
 
 Per-check overrides let you spend a stronger model only where it matters:
 
 ```python
-Conformity(name="critical_rule", rule="...", generator=Generator(model="openai/gpt-4o"))
+Conformity(name="critical_rule", rule="...", generator=Generator(model="openai/gpt-5.6-sol"))
 ```
 
 **Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
 
-- `GISKARD_CHECKS_DEFAULT_MODEL` -- default judge model (default `openai/gpt-4o-mini`)
-- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` -- default embedder (default `text-embedding-3-small`)
+- `GISKARD_CHECKS_DEFAULT_MODEL` -- judge model used when no generator is set (defaults to the legacy `openai/gpt-4o-mini`; set this or call `set_default_generator`)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` -- default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option)
 - `GISKARD_CHECKS_MAX_REPORTED_FAILURES` -- cap failures shown in suite reports
 - `GISKARD_CHECKS_DISABLE_RICH_PRETTY` -- disable rich REPL pretty-printing
 

@@ -29,7 +29,7 @@ from giskard.checks import (
     FnCheck, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # REPLACE: Wire up your actual agent
 def your_rag_agent(inputs: str) -> str:
@@ -122,7 +122,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 def your_rag_agent(inputs: str) -> str:
     """Your RAG agent. Replace this stub."""
@@ -226,7 +226,7 @@ from giskard.checks import (
     FnCheck, set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 def your_rag_agent(inputs: str) -> dict:
     """Your RAG agent. Returns {"answer": str, "retrieved_ids": list[str]} so we can eval retrieval."""
@@ -396,7 +396,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 def your_rag_agent(inputs: str) -> str:
     raise NotImplementedError("Replace with your agent")
@@ -466,7 +466,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 async def your_rag_agent(inputs: str, trace) -> str:
     """Multi-turn RAG agent. Receives the full trace to maintain conversation state."""
@@ -549,7 +549,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # 1. KB with stable doc_ids -- the same IDs the agent must cite by.
 KB_DOCS = {
@@ -671,7 +671,7 @@ from giskard.agents import Generator
 from giskard.checks import Conformity, Groundedness, Scenario, Suite, set_default_generator
 from giskard.scan import KnowledgeBase, quality_scan
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 AGENT_DESCRIPTION = (
     "An internal HR assistant that answers employee questions about benefits, "
@@ -758,7 +758,7 @@ from giskard.checks import (
     set_default_generator,
 )
 
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 ```
 
 **Cell 2 (SUT, often already exists in the notebook)**:

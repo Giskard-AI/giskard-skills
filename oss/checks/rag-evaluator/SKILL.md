@@ -202,9 +202,9 @@ from giskard.checks import (
 )
 
 # 1. Configure the LLM generator used by Groundedness, AnswerRelevance, Conformity, LLMJudge.
-#    Optional (the default is openai/gpt-4o-mini), but set it explicitly so the
-#    judge model is visible. Use a small fast model: judging is much cheaper than generation.
-set_default_generator(Generator(model="openai/gpt-4o-mini"))
+#    Name a current model explicitly; the built-in fallback is a legacy one.
+#    A mid-tier model is plenty: judging is much cheaper than generation.
+set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
 # 2. Define the SUT (System Under Test). The user replaces this stub.
 #    IMPORTANT: parameter name MUST be `inputs` (and optional `trace`) for giskard injection.
@@ -278,7 +278,7 @@ These rules exist because subtle violations cause silent failures or hard errors
 - ALWAYS use `from giskard.checks import ...` for all check classes; they are all re-exported there. The only separate imports are `from giskard.agents import Generator` and, when using the scan, `from giskard.scan import KnowledgeBase, quality_scan`.
 - ALWAYS select the value under test with `target_key=`, on every check that reads from the trace — including `Groundedness`, `AnswerRelevance`, `SemanticSimilarity`, `StringMatching`, `RegexMatching` and the comparisons. Each of the other selectors is named after its static sibling: `context` / `context_key`, `reference_text` / `reference_text_key`, `expected_value` / `expected_value_key`.
 - Checks reject unknown keyword arguments (`extra="forbid"`), so an invented field name raises `pydantic.ValidationError` at construction. Never guess a field name; look it up in `references/api-reference.md`.
-- `set_default_generator(Generator(model="..."))` is optional (LLM checks fall back to `openai/gpt-4o-mini`, overridable via `GISKARD_CHECKS_DEFAULT_MODEL`), but include it so the judge model is explicit and reviewable.
+- ALWAYS call `set_default_generator(Generator(model="..."))` and name a current model. It is technically optional, but the built-in fallback is `openai/gpt-4o-mini` — a legacy model no longer in OpenAI's recommended lineup — so relying on it silently pins the judge to a stale model. See `references/api-reference.md` for current model IDs per provider.
 - ALWAYS use the fluent builder API: `Scenario("name").interact(...).check(...)`. NEVER pass `inputs`, `checks`, or `description` as constructor kwargs to `Scenario(...)`; unlike checks, `Scenario` tolerates unknown keys and silently drops them, producing empty scenarios that pass instantly without running anything. (This is the single most common silent failure.)
 - ALWAYS wrap scenarios in a `Suite`. Even a single scenario should go in a Suite, because `Suite` provides `pass_rate`, `print_report()`, JUnit export, and consistent result handling.
 - ALWAYS pass the SUT as `target=` to `suite.run(target=your_agent)`, NOT as `outputs=` in each `.interact()`. This avoids repetition and makes swapping SUTs trivial.
@@ -315,7 +315,7 @@ When you respond, structure your output like this:
 
 - Quality matters more than quantity. 10 well-targeted scenarios beat 100 redundant ones.
 - For groundedness, the `context` you pass to the check is the ground truth. If the user's KB chunks are noisy, the eval is noisy. Tell the user that good context = good eval.
-- LLM judge calls are the slowest part. Use your provider's cheapest fast-tier model as the judge — it's far cheaper than generation, and doesn't need to match the agent's model. Run the suite with `parallel=True`.
+- LLM judge calls are the slowest part. A mid-tier judge is plenty — judging is far cheaper than generation and doesn't need to match the agent's model. See the model table in `references/api-reference.md`, and run the suite with `parallel=True`.
 - When generating synthetic Q&A, generate twice as many as you need and let the user trim. Synthetic data is cheap; a flaky test set is expensive.
 - For multi-hop and paraphrase question types, *show your work*: include the source chunks the question was generated from in a comment, so the user can sanity-check.
 - Use `multiple_runs=N` on a `Scenario` when you need to expose flaky non-determinism on a specific question. Each run gets a fresh trace and execution stops at the first non-passing run.
