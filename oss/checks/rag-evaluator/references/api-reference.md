@@ -287,7 +287,7 @@ StringMatching(name="cites_paris", keyword="Paris", target_key="trace.last.outpu
 StringMatching(name="mentions_refund", keyword="refund", case_sensitive=False)
 
 # Keyword absence: StringMatching only asserts presence, so wrap it in Not.
-Not(name="no_medical_advice", check=StringMatching(keyword="medical advice", target_key="trace.last.outputs"))
+Not(name="no_medical_advice", check=StringMatching(name="mentions_medical_advice", keyword="medical advice", target_key="trace.last.outputs"))
 
 # Regex (PyPI `regex` module, with a matching timeout)
 RegexMatching(name="has_citation", pattern=r"\[\d+\]", target_key="trace.last.outputs")

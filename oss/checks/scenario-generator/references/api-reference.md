@@ -416,7 +416,7 @@ Fields:
 `StringMatching` only asserts presence. To assert **absence**, wrap it in `Not`:
 
 ```python
-Not(name="no_forbidden_word", check=StringMatching(keyword="forbidden", target_key="trace.last.outputs"))
+Not(name="no_forbidden_word", check=StringMatching(name="has_forbidden_word", keyword="forbidden", target_key="trace.last.outputs"))
 ```
 
 ### RegexMatching
@@ -684,7 +684,7 @@ Inverts the result of an inner check. Pass becomes fail, fail becomes pass. ERRO
 ```python
 Not(
     name="no_forbidden_word",
-    check=StringMatching(keyword="forbidden_word", target_key="trace.last.outputs"),
+    check=StringMatching(name="has_forbidden_word", keyword="forbidden_word", target_key="trace.last.outputs"),
 )
 ```
 

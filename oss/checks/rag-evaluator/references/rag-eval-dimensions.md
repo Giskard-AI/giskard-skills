@@ -166,8 +166,8 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - Agent fills in plausible-but-fictional details to round out a partial answer
 
 **Checks to use**:
-- `Groundedness` with strict criteria
-- `LLMJudge` with a fabrication-focused prompt (e.g., "Identify any factual claim in the answer that is not directly supported by the context. Return passed=false if any are found.")
+- `Conformity` with a decline rule for the non-existent-entity, absent-number and absent-quote probes below. Their pass condition is refusal, and there is no context to ground against, so `Groundedness` would return ERROR (an unresolved context key is not a verdict). This is the primary check for these probes.
+- `Groundedness` with strict criteria, or `LLMJudge` with a fabrication-focused prompt (e.g., "Identify any factual claim in the answer that is not directly supported by the context. Return passed=false if any are found."), for the other failure mode, where the agent adds fictional detail on top of a real chunk. Both need a context, so use them only when one exists.
 
 **Test patterns**:
 - Ask about a **non-existent entity** in the agent's domain (e.g., a made-up product name) → expect refusal, not invented description
