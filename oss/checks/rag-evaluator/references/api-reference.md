@@ -454,7 +454,7 @@ Model line-ups turn over every few months, so confirm against the provider's cur
 
 Changing the judge model re-baselines the suite. Expect a handful of borderline verdicts to flip, and re-run the whole suite rather than comparing a new judge's results against an old report.
 
-**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix fails with `ValueError: Provider '<x>' is not configured and not in the registry.` Through `Generator` and the checks, that `ValueError` arrives as the cause of a `WorkflowError` (or as an ERROR check result), with the message intact in the exception chain.
 
 For anything else:
 
@@ -478,7 +478,7 @@ set_default_generator(LiteLLMGenerator(model="bedrock/anthropic.claude-sonnet-5"
 **Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
 
 - `GISKARD_CHECKS_DEFAULT_MODEL` — judge model used when no generator is set (defaults to the legacy `openai/gpt-4o-mini`; set this or call `set_default_generator`)
-- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` — default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` — default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option). A bare name routes to OpenAI, so prefix it on other providers (`azure_ai/text-embedding-3-small`)
 - `GISKARD_CHECKS_MAX_REPORTED_FAILURES` — cap failures shown in suite reports
 - `GISKARD_CHECKS_DISABLE_RICH_PRETTY` — disable rich REPL pretty-printing
 
@@ -532,7 +532,7 @@ kb = KnowledgeBase(documents=(Document(content="chunk 1", tags=["policy"]),))
 neighbours = await kb.closest_documents_to_text("parental leave", max_documents=3)
 ```
 
-The document collection is frozen, embeddings are computed lazily in one batch on first nearest-neighbour lookup, and at least one non-empty document is required. `from_texts` takes a list of strings, so convert a DataFrame column to a list first. Passing a bare `str` is rejected rather than being split into one document per character.
+The document collection is frozen, embeddings are computed lazily in one batch on first nearest-neighbour lookup, and at least one non-empty document is required. `from_texts` takes a list of strings, so convert a DataFrame column to a list first. A bare `str` is not rejected. It is iterated character by character and silently becomes one document per character, so always wrap a single text in a list (`from_texts([text])`).
 
 ### Composing your own generated suite
 
@@ -569,5 +569,5 @@ Because the result is an ordinary `Suite` / `SuiteResult`, a generated suite and
 - **`StringMatching` cannot assert absence on its own**: wrap it in `Not(...)`.
 - **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
 - **`scen.trace.last.outputs` raises AttributeError in post-suite aggregation**: `ScenarioResult` exposes the trace as `final_trace`, not `trace`.
-- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`** (often wrapped in a `WorkflowError`, so check the exception cause): only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
 - **Later turns of a multi-turn scenario report SKIP**: an earlier step failed, so the rest never ran. Skipped scenarios are excluded from the pass-rate denominator.

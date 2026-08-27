@@ -60,7 +60,7 @@ pip install "giskard[openai,scan]"     # or [anthropic,scan], [google,scan], [az
 - The provider extra (`openai`, `anthropic`, `google`, `azure`) installs the SDK the LLM judges and embedders need. Bare `giskard-checks` has **no** provider SDK, so `Groundedness`, `AnswerRelevance`, `Conformity`, `LLMJudge`, `Contradiction` and `SemanticSimilarity` will all fail at call time. Prefer `pip install "giskard[openai]"` over `pip install giskard-checks`.
 - The `scan` extra adds `giskard.scan.quality_scan`, which generates a knowledge-base quality suite for you. Include it whenever the user has a knowledge base.
 
-Then export the provider's API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...). Embedding-backed checks (`SemanticSimilarity`) and `KnowledgeBase` retrieval also call the embeddings endpoint, defaulting to `text-embedding-3-small`.
+Then export the provider's API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...). For Azure, the `azure_ai/...` model prefix reads `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT`, and the `azure/...` prefix reads `AZURE_API_KEY` and `AZURE_API_BASE`. Embedding-backed checks (`SemanticSimilarity`) and `KnowledgeBase` retrieval also call the embeddings endpoint, defaulting to `text-embedding-3-small`. A bare embedding model name routes to OpenAI, so on another provider set `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` to a prefixed id such as `azure_ai/text-embedding-3-small`.
 
 The generated code imports from `giskard.checks`, `giskard.agents` and (optionally) `giskard.scan`, and will fail at import time without this package. Do not skip.
 

@@ -749,7 +749,7 @@ Judging is much cheaper than generation, so a mid-tier model is the right defaul
 
 Model line-ups turn over every few months, so confirm against the provider's current model list before pinning one in a long-lived suite. Prefer a pinned ID over a `-latest` alias: an alias that silently changes underneath you turns judge drift into unexplained suite churn. Note that Gemini's Pro tier is preview-stage, which carries a shorter deprecation notice period than stable models.
 
-**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix raises `ValueError: Provider '<x>' is not configured and not in the registry.`
+**Model strings are `provider/model`, routed through `giskard-llm`'s native providers.** Supported prefixes: `openai`, `google`, `gemini`, `anthropic`, `azure`, `azure_ai`. A bare model name defaults to `openai`. An unregistered prefix fails with `ValueError: Provider '<x>' is not configured and not in the registry.` Through `Generator` and the checks, that `ValueError` arrives as the cause of a `WorkflowError` (or as an ERROR check result), with the message intact in the exception chain.
 
 For anything else:
 
@@ -775,7 +775,7 @@ Conformity(name="critical_rule", rule="...", generator=Generator(model="openai/g
 **Environment variables** (prefix `GISKARD_CHECKS_`, also read from a project `.env`):
 
 - `GISKARD_CHECKS_DEFAULT_MODEL` -- judge model used when no generator is set (defaults to the legacy `openai/gpt-4o-mini`; set this or call `set_default_generator`)
-- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` -- default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option)
+- `GISKARD_CHECKS_DEFAULT_EMBEDDING_MODEL` -- default embedder (`text-embedding-3-small`, still current; `text-embedding-3-large` is the more capable option). A bare name routes to OpenAI, so prefix it on other providers (`azure_ai/text-embedding-3-small`)
 - `GISKARD_CHECKS_MAX_REPORTED_FAILURES` -- cap failures shown in suite reports
 - `GISKARD_CHECKS_DISABLE_RICH_PRETTY` -- disable rich REPL pretty-printing
 
@@ -886,6 +886,6 @@ Requires `pip install "giskard[scan]"`. Generation itself costs LLM calls.
 - **`StringMatching` cannot assert absence on its own**: wrap it in `Not(...)`.
 - **LLM judge fails validation on `reason`**: `LLMCheckResult.reason` is required and non-blank; ask for it in the prompt.
 - **`scen.trace.last.outputs` raises AttributeError**: `ScenarioResult` exposes `final_trace`.
-- **`ValueError: Provider 'ollama' is not configured and not in the registry`**: only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
+- **`ValueError: Provider 'ollama' is not configured and not in the registry`** (often wrapped in a `WorkflowError`, so check the exception cause): only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
 - **`Groundedness` always passes / always fails**: check whether `context` (static) is shadowing `context_key`; the static value always wins.
 - **`AnswerRelevance` returns "relevant" for off-topic answers**: pass `context="..."` describing the agent's domain so the judge has scope to ground its decision.

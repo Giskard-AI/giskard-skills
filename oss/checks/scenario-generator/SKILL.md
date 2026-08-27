@@ -58,7 +58,7 @@ pip install "giskard[openai]"     # or [anthropic], [google], [azure]
 
 Installing bare `giskard-checks` gives you the scenario API but **no provider SDK**, so every LLM-backed check (`Conformity`, `LLMJudge`, `Groundedness`, `AnswerRelevance`, `Toxicity`, `Contradiction`) and `UserSimulator` will fail at call time. The extras live on the `giskard` package, so prefer `pip install "giskard[openai]"` over `pip install giskard-checks`.
 
-Then export the provider's API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, ...).
+Then export the provider's API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, ...). For Azure, the `azure_ai/...` model prefix reads `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT`, and the `azure/...` prefix reads `AZURE_API_KEY` and `AZURE_API_BASE`.
 
 Add `pip install "giskard[scan]"` when you also want the automated red-team suite (see [Step 5](#step-5-offer-the-automated-scan-as-a-complement)).
 
