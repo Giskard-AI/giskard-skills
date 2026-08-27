@@ -1,6 +1,6 @@
 # Giskard Checks API Reference
 
-Complete API reference for generating test scenarios. All public classes are importable from `giskard.checks`.
+Complete API reference for generating test scenarios. All public classes are importable from `giskard.checks`. The library source of truth is [giskard-oss](https://github.com/Giskard-AI/giskard-oss) (`libs/giskard-checks/src/giskard/checks/__init__.py`). When this document and the library disagree, the library wins.
 
 Two conventions carry most of the weight and are worth internalizing before reading further:
 
@@ -54,6 +54,9 @@ from giskard.checks import (
     set_default_generator, get_default_generator,
 )
 from giskard.agents import Generator
+
+# Tool-call spying
+from giskard.checks import WithSpy
 ```
 
 `Readability` requires `pip install "giskard-checks[readability]"` and `RegoPolicy` requires `pip install "giskard-checks[regorus]"`; both raise a `ValidationError` with the install hint if the extra is missing.
@@ -486,6 +489,30 @@ Readability(
 
 Requires `pip install "giskard-checks[readability]"`. Reports the score as a `Metric` on the result.
 
+### RegoPolicy (optional extra)
+
+Evaluates an inline [Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policy against a value extracted from the trace. Suits declarative allow/deny rules on structured agent output, and replaces long `FnCheck` conditionals.
+
+```python
+RegoPolicy(
+    name="authz_policy",
+    policy='''
+package giskard
+
+default allow = false
+
+allow if {
+    input.action == "read"
+    input.authenticated == true
+}
+''',
+    rule="data.giskard.allow",         # fully qualified boolean rule, must start with data.
+    target_key="trace.last.outputs",   # default; the resolved value becomes the policy's input document
+)
+```
+
+Fields are `policy` (inline Rego source), `rule` (boolean rule path), `target_key`, and an optional `data` dict merged into the policy engine as static data. The rule must resolve to a boolean: `true` passes, `false` fails, an undefined rule fails, and a non-boolean value returns ERROR. Requires `pip install "giskard-checks[regorus]"`.
+
 ## LLM-Based Checks
 
 All accept an optional `generator=` for a per-check model override. Without it, they use the process-wide default set by `set_default_generator(...)`. See [Picking a judge model](#picking-a-judge-model) for current model IDs.
@@ -725,6 +752,37 @@ result = await suite.run(target=my_agent)
 
 - `LLMGenerator(prompt=... | prompt_path=..., max_steps=...)` -- the generic form of `UserSimulator` when you want to supply the whole driving prompt yourself.
 - `DatasetInputGenerator(prompt="...")` -- yields one fixed prompt verbatim, and adapts it into a structured target schema when the SUT does not take plain strings. Useful for replaying an attack corpus.
+
+## WithSpy (tool-call spying)
+
+`WithSpy` wraps one interaction and patches a target callable with a `unittest.mock.MagicMock` while the interaction runs. Use it to assert that a tool was called (or not called) with the expected arguments, without executing the real tool. The patched function is **replaced**, not observed: it records calls and returns mock values, so the agent's output will contain mock data for anything derived from the tool's return value.
+
+```python
+from giskard.checks import FnCheck, Interact, Scenario, Suite, WithSpy
+
+def support_agent(inputs: str) -> str:
+    if "refund" in inputs:
+        return f"Done: {send_refund('A-123')}"   # calls the tool under spy
+    return "How can I help?"
+
+spy_scenario = (
+    Scenario("refund_tool_called")
+    .extend(
+        WithSpy(
+            interaction_generator=Interact(inputs="Please refund my order", outputs=support_agent),
+            target="my_app.tools.send_refund",   # dotted import path; must be importable
+        )
+    )
+    .check(FnCheck(
+        name="tool_called_once",
+        fn=lambda trace: trace.last.metadata["my_app.tools.send_refund"]["call_count"] == 1,
+    ))
+)
+```
+
+- `WithSpy` is an `InteractionSpec`. Add it with `.extend(...)`, not `.interact(...)`, and give the inner `Interact` an explicit `outputs=` callable.
+- The spy payload lands in the interaction metadata under the `target` string, with `call_count`, `call_args`, `call_args_list`, and `mock_calls`.
+- This is the structural case where `FnCheck` is the right tool: the assertion is about call structure, not language.
 
 ## Generator Configuration
 

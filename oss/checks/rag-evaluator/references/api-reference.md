@@ -1,6 +1,6 @@
 # Giskard Checks API Reference (RAG-focused)
 
-Subset of the `giskard.checks` API most relevant to RAG evaluation, plus the `giskard.scan` quality-scan entry points. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks). For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
+Subset of the `giskard.checks` API most relevant to RAG evaluation, plus the `giskard.scan` quality-scan entry points. For the complete API see the [giskard-checks documentation](https://docs.giskard.ai/oss/checks). The library source of truth is [giskard-oss](https://github.com/Giskard-AI/giskard-oss) (`libs/giskard-checks/src/giskard/checks/__init__.py`). When this document and the library disagree, the library wins. For full worked code that uses these primitives end-to-end, see [`examples.md`](./examples.md). For attack-pattern coverage and adversarial scenarios, see the `scenario-generator` skill.
 
 Two conventions carry most of the weight:
 

@@ -79,7 +79,7 @@ Several of these dimensions have a `giskard-scan` generator behind `quality_scan
 
 **Checks to use**:
 - `Conformity` with rule like: "When the answer is not in the agent's knowledge base, the agent must explicitly decline or say it does not know. Confident-but-unsupported answers fail."
-- `StringMatching(keyword="don't have", case_sensitive=False)` or similar: quick sanity check on refusal phrasing
+- `StringMatching(keyword="don't have", case_sensitive=False)` or similar: cheap gate on refusal phrasing only, never the sole refusal check (`Conformity` is the verdict)
 - `AnyOf(name="grounded_or_refused", checks=[grounded, declines])`: pass if either grounded OR refusal happened. Note the kwarg is `checks=[...]`, and `AnyOf` propagates an inner ERROR immediately rather than treating it as a failed branch.
 
 **Test patterns**:
@@ -139,7 +139,8 @@ The reference also shows three scoring strategies (Strict, Cosine, LLM-judged) t
 
 **Checks to use**:
 - `RegexMatching`: does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)? Select the text with `target_key=`.
-- `FnCheck`: extract cited IDs from the answer and check they exist in the KB
+- `FnCheck`: extract cited IDs from the answer and check they exist in the KB (structural, the right FnCheck use)
+- `Conformity` with a rule that every factual claim must cite a provided source
 - `LLMJudge`: compare each cited claim against its cited source
 
 **Test patterns**:
