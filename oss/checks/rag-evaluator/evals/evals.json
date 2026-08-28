@@ -5,33 +5,49 @@
       "id": 1,
       "name": "agent-with-kb",
       "prompt": "I built an internal knowledge base assistant for our engineering team using LangChain + a Chroma vector store. It answers questions about our backend architecture by retrieving from ~200 markdown files of internal docs. I want to evaluate it. Specifically I'm worried about: (1) it sometimes confidently makes up things that aren't in the docs, (2) for questions our docs don't cover (e.g., 'how do I deploy to AWS?' — we use GCP), it just makes up an AWS answer. The agent function is `def answer(query: str) -> str` and calls our LangChain chain. Can you help me build evals for this?",
-      "expected_output": "A complete, runnable Python script (or notebook cells) using giskard.checks. Should include: agent stub, KB-anchored test cases (in-scope and out-of-scope), Groundedness checks, AnswerRelevance checks, Conformity rule for refusal on out-of-scope. Should use Suite, set_default_generator, and pass agent as target. Should ask 1-2 clarifying questions if KB samples not provided, but still produce reasonable scaffolding.",
+      "expected_output": "A complete, runnable Python script (or notebook cells) using giskard.checks. Should include: agent stub with an `inputs` parameter wrapping the user's `answer(query)`, KB-anchored test cases (in-scope and out-of-scope), Groundedness checks, AnswerRelevance checks, Conformity rule for refusal on out-of-scope. Should use Suite, set_default_generator, and pass agent as target. May also offer giskard.scan.quality_scan since a knowledge base is available. Should ask 1-2 clarifying questions if KB samples not provided, but still produce reasonable scaffolding. Should include iteration next steps (run, review failures, refine judges, re-run).",
       "files": [],
-      "assertions": []
+      "assertions": [
+        {"text": "Uses Groundedness for in-scope and Conformity (not Groundedness) for out-of-scope refusal", "type": "content"},
+        {"text": "Uses Conformity or LLMJudge for behavioral checks rather than keyword FnCheck heuristics", "type": "content"},
+        {"text": "Includes run-review-refine iteration guidance and JSON result persistence", "type": "content"}
+      ]
     },
     {
       "id": 2,
       "name": "blackbox-agent",
       "prompt": "I have a customer support chatbot deployed at our company. It's a black box — I just have a Python function `chatbot(message)` that returns a string. I don't have access to the underlying docs it uses. How can I evaluate it for hallucination and quality? I'm getting complaints that it's making up product features that don't exist.",
-      "expected_output": "Python code that handles the no-KB case gracefully: AnswerRelevance, Conformity rules for behavior, paraphrase consistency. Skill should be transparent that without a KB, groundedness can't be properly evaluated and explain that gap. Should NOT pretend to do groundedness without context. Should produce a runnable Suite.",
+      "expected_output": "Python code that handles the no-KB case gracefully: AnswerRelevance, Conformity rules for behavior, paraphrase consistency. Skill should be transparent that without a KB, groundedness can't be properly evaluated and explain that gap. Should NOT pretend to do groundedness without context. May propose a few neutral discovery calls against the black-box agent to learn its scope first. Should produce a runnable Suite with iteration next steps.",
       "files": [],
-      "assertions": []
+      "assertions": [
+        {"text": "Transparent about the groundedness gap without a KB", "type": "content"},
+        {"text": "Uses Conformity/AnswerRelevance/LLMJudge instead of FnCheck keyword heuristics for quality", "type": "content"},
+        {"text": "Includes iteration loop guidance", "type": "content"}
+      ]
     },
     {
       "id": 3,
       "name": "advanced-retriever",
       "prompt": "We have a RAG system over our scientific paper corpus. It exposes both an end-to-end query function `def ask(question: str) -> dict` (returns `{'answer': ..., 'cited_paper_ids': [...], 'retrieved_chunks': [...]}`) and a retriever `def retrieve(q, k=10) -> list[ChunkObject]`. I have a labelled set of ~50 questions with the paper IDs that should be retrieved. I want a comprehensive eval covering retrieval quality, groundedness, and citation accuracy.",
-      "expected_output": "Python code that uses the dict structure correctly: answer_key='trace.last.outputs.answer', context_key for groundedness pointing at retrieved_chunks, FnCheck for recall@k retrieval quality using cited_paper_ids vs labelled paper IDs, custom check or LLMJudge for citation accuracy. Should rename the SUT parameter from `question` to `inputs` or wrap it.",
+      "expected_output": "Python code that uses the dict structure correctly: target_key='trace.last.outputs.answer', context_key for groundedness pointing at retrieved_chunks, FnCheck for recall@k retrieval quality using cited_paper_ids vs labelled paper IDs (an appropriate structural FnCheck), LLMJudge or Conformity for citation accuracy (keyword heuristics alone are not enough). Should rename the SUT parameter from `question` to `inputs` or wrap it, since any other required parameter raises TypeError. Include iteration next steps.",
       "files": [],
-      "assertions": []
+      "assertions": [
+        {"text": "FnCheck used only for retrieval metrics or structural ID checks", "type": "content"},
+        {"text": "Uses Conformity or LLMJudge for citation/grounding quality", "type": "content"},
+        {"text": "Includes iteration loop guidance", "type": "content"}
+      ]
     },
     {
       "id": 4,
       "name": "notebook-context",
       "prompt": "I'm working in a Jupyter notebook called `rag_eval.ipynb`. My RAG agent is `qa_chain.invoke(question)` and returns a dict with `'answer'` and `'context'` keys. I have a sample list of 5 KB chunks I'm experimenting with. Can you add some giskard evaluation cells to test groundedness and answer relevance for me?",
-      "expected_output": "Code presented as notebook cells (NOT a single .py script with __main__), no asyncio.run() at the end (use `await` directly), uses dict-aware keys (answer_key='trace.last.outputs.answer'). Wraps the qa_chain in a function with `inputs` parameter for giskard injection. Final cell prints/displays the result.",
+      "expected_output": "Code presented as notebook cells (NOT a single .py script with __main__), no asyncio.run() at the end (use `await` directly), uses dict-aware keys (target_key='trace.last.outputs.answer', context_key='trace.last.outputs.context'). Wraps the qa_chain in a function with `inputs` parameter for giskard injection. Final cell prints/displays the result. Mentions iterating after the first run.",
       "files": [],
-      "assertions": []
+      "assertions": [
+        {"text": "Notebook cell format with await (no __main__ block)", "type": "content"},
+        {"text": "Uses Groundedness and AnswerRelevance with dict-aware keys", "type": "content"},
+        {"text": "Mentions reviewing the first run before expanding the suite", "type": "content"}
+      ]
     }
   ]
 }

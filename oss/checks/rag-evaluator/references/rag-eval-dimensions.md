@@ -4,6 +4,18 @@ The catalog of quality dimensions to evaluate in a RAG system. Use this to decid
 
 A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup permits.
 
+Tag each scenario with the dimension it covers (`.with_tags(["Dimension:Groundedness"])`) and report with `result.print_report(group_by="Dimension")`. A single aggregate pass rate tells the user nothing actionable; a per-dimension table tells them whether to fix the retriever, the prompt, or the refusal policy.
+
+Several of these dimensions have a `giskard-scan` generator behind `quality_scan`, so you do not have to hand-write them when the user has a knowledge base:
+
+| Dimension | `quality_scan` coverage |
+|---|---|
+| 1. Groundedness / faithfulness, 6. Hallucination probes | `HallucinationScenarioGenerator` |
+| 3. Out-of-scope refusal | `OutOfScopeScenarioGenerator` |
+| 7. Multi-hop reasoning | `SplitQuestionsScenarioGenerator`, `MultiTopicScenarioGenerator` |
+| False-premise agreement (see dimension 1) | `SycophancyScenarioGenerator` |
+| 2. Answer relevance, 4. Retrieval quality, 5. Citation accuracy, 8. Paraphrase consistency, 9. Numerical precision | no generator; hand-write these |
+
 ---
 
 ## 1. Groundedness / Faithfulness
@@ -19,13 +31,14 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - Agent omits key qualifiers from the source (e.g., source says "may cause X in some cases", agent says "causes X")
 
 **Checks to use**:
-- `Groundedness`: primary check. Use static `context=[...]` or `context_key=...` for dynamic.
+- `Groundedness`: primary check. Use static `context=[...]`, or `context_key=...` for dynamic context (the agent's own retrieved chunks, or `metadata` attached at `.interact()` time). Select the answer with `target_key=`.
+- `Contradiction`: the permissive variant. It fails only when the answer *directly conflicts* with the context, tolerating omissions and unsupported additions. Use it as the CI gate when the agent is allowed to add world knowledge on top of retrieval, and keep strict `Groundedness` as the informational signal.
 - `LLMJudge`: for nuanced groundedness criteria (e.g., "no claim should go beyond what the source explicitly states")
 
 **Test patterns**:
 - Ask a question whose answer is in a single chunk → expect grounded answer
 - Ask a question whose answer is in multiple chunks → expect grounded synthesis (overlaps with multi-hop)
-- Ask a question with a **false premise** ("Since X is true, why does Y happen?" where X is contradicted by KB) → expect agent to correct the premise, not play along
+- Ask a question with a **false premise** ("Since X is true, why does Y happen?" where X is contradicted by KB) → expect agent to correct the premise, not play along. `quality_scan`'s `SycophancyScenarioGenerator` generates this pattern automatically from the knowledge base.
 
 ---
 
@@ -42,7 +55,7 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 - In multi-turn, agent answers a previous question that no longer applies
 
 **Checks to use**:
-- `AnswerRelevance`: primary. Defaults to `question_key="trace.last.inputs"`, `answer_key="trace.last.outputs"`. Pass `context="domain description"` to constrain the judge.
+- `AnswerRelevance`: primary. Defaults to `question_key="trace.last.inputs"` and `target_key="trace.last.outputs"`. Pass `context="domain description"` to constrain the judge, and `include_history=False` to score a turn in isolation.
 - `LLMJudge`: for stricter or domain-specific relevance criteria
 
 **Test patterns**:
@@ -66,8 +79,8 @@ A solid RAG eval covers at least dimensions 1–3. Add 4–9 as the user's setup
 
 **Checks to use**:
 - `Conformity` with rule like: "When the answer is not in the agent's knowledge base, the agent must explicitly decline or say it does not know. Confident-but-unsupported answers fail."
-- `StringMatching(keyword="don't have", ...)` or similar: quick sanity check on refusal phrasing
-- `AnyOf(grounded, declines)`: pass if either grounded OR refusal happened
+- `StringMatching(keyword="don't have", case_sensitive=False)` or similar: cheap gate on refusal phrasing only, never the sole refusal check (`Conformity` is the verdict)
+- `AnyOf(name="grounded_or_refused", checks=[grounded, declines])`: pass if either grounded OR refusal happened. Note the kwarg is `checks=[...]`, and `AnyOf` propagates an inner ERROR immediately rather than treating it as a failed branch.
 
 **Test patterns**:
 - Generate questions about entities/topics intentionally absent from the KB
@@ -125,8 +138,9 @@ The reference also shows three scoring strategies (Strict, Cosine, LLM-judged) t
 - Agent makes claims with no citation when citations are required
 
 **Checks to use**:
-- `RegexMatching`: does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)?
-- `FnCheck`: extract cited IDs from the answer and check they exist in the KB
+- `RegexMatching`: does the answer contain citation markers (e.g., `[1]`, `(Smith 2020)`)? Select the text with `target_key=`.
+- `FnCheck`: extract cited IDs from the answer and check they exist in the KB (structural, the right FnCheck use)
+- `Conformity` with a rule that every factual claim must cite a provided source
 - `LLMJudge`: compare each cited claim against its cited source
 
 **Test patterns**:
@@ -144,7 +158,7 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 
 **When it applies**: Always, especially when groundedness is hard to verify automatically.
 
-**Note on scope**: This is *quality-focused* hallucination probing; we test whether the agent invents facts in normal use. Adversarial fabrication attacks (jailbreaks, persona manipulation) belong in `scenario-generator`.
+**Note on scope**: This is *quality-focused* hallucination probing; we test whether the agent invents facts in normal use. Adversarial fabrication attacks (jailbreaks, persona manipulation) belong in `scenario-generator`. `quality_scan`'s `HallucinationScenarioGenerator` generates this dimension automatically from the knowledge base.
 
 **Failure modes**:
 - Agent invents a citation, statistic, or quote that isn't in the source
@@ -152,8 +166,8 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - Agent fills in plausible-but-fictional details to round out a partial answer
 
 **Checks to use**:
-- `Groundedness` with strict criteria
-- `LLMJudge` with a fabrication-focused prompt (e.g., "Identify any factual claim in the answer that is not directly supported by the context. Return passed=false if any are found.")
+- `Conformity` with a decline rule for the non-existent-entity, absent-number and absent-quote probes below. Their pass condition is refusal, and there is no context to ground against, so `Groundedness` would return ERROR (an unresolved context key is not a verdict). This is the primary check for these probes.
+- `Groundedness` with strict criteria, or `LLMJudge` with a fabrication-focused prompt (e.g., "Identify any factual claim in the answer that is not directly supported by the context. Return passed=false if any are found."), for the other failure mode, where the agent adds fictional detail on top of a real chunk. Both need a context, so use them only when one exists.
 
 **Test patterns**:
 - Ask about a **non-existent entity** in the agent's domain (e.g., a made-up product name) → expect refusal, not invented description
@@ -178,7 +192,7 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - `LLMJudge` for the combination logic specifically
 
 **Test patterns**:
-- Generate questions whose answer requires facts from 2+ chunks (see [`synthetic-qa-generation.md`](./synthetic-qa-generation.md))
+- Generate questions whose answer requires facts from 2+ chunks (see [`synthetic-qa-generation.md`](./synthetic-qa-generation.md)), or let `quality_scan`'s `SplitQuestionsScenarioGenerator` and `MultiTopicScenarioGenerator` do it
 - Verify the question is *genuinely* multi-hop, not just a chain of trivial single-hop steps
 
 ---
@@ -194,12 +208,13 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - Agent contradicts its own previous answers when the question is reworded
 
 **Checks to use**:
-- `SemanticSimilarity` between answers across paraphrases (within a single multi-turn scenario, or between sibling scenarios)
+- `SemanticSimilarity` between answers across paraphrases (within a single multi-turn scenario, or between sibling scenarios): `reference_text_key="trace.interactions[0].outputs"` with `target_key="trace.interactions[1].outputs"`. Calibrate `threshold` down from its 0.95 default to 0.6-0.7.
 - `LLMJudge` for "do these two answers say the same thing?"
+- `Scenario(..., multiple_runs=3)` for the adjacent question of run-to-run determinism on a single phrasing: each run gets a fresh trace and execution stops at the first non-passing run.
 
 **Test patterns**:
 - For each factual question, generate 2–3 paraphrases (formal/casual/abbreviated)
-- Run them as separate scenarios; cross-check answers post-hoc, OR put paraphrases in a single multi-turn scenario and compare via `trace.interactions[i].outputs`
+- Run them as separate scenarios; cross-check answers post-hoc, OR put paraphrases in a single multi-turn scenario and compare via `trace.interactions[i].outputs`. In the multi-turn form, a failing early turn skips the later ones (SKIP, not FAIL), which is what you want since the comparison would be meaningless.
 
 ---
 
@@ -215,9 +230,11 @@ For a worked end-to-end example combining all three layers, see [`examples.md` E
 - Off-by-one or rounding errors
 
 **Checks to use**:
-- `Equals`: for exact match against a gold value
+- `Equals`: for exact match against a gold value (`expected_value=` plus `target_key=`)
+- `LessThan` / `LessThanEquals` / `GreaterThan` / `GreaterThanEquals`: for bounds on a numeric field the agent returns. An unsupported comparison (`str < int`) returns ERROR, so point `target_key` at a genuinely numeric field.
 - `RegexMatching`: for format validation (e.g., dollar amounts, dates)
 - `FnCheck`: for numerical tolerance (e.g., within 5%)
+- `JsonValid` with a `schema=`: when the value arrives inside a structured envelope and you want the shape validated before the numeric assertions run
 - `LLMJudge`: when the gold answer can be expressed many ways
 
 **Test patterns**:
