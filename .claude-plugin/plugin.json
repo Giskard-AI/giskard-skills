@@ -5,5 +5,5 @@
     "author": {
         "name": "Giskard"
     },
-    "skills": ["./oss/checks/", "./integrations/"]
+    "skills": ["./oss/checks/", "./integrations/", "./hub/"]
 }
