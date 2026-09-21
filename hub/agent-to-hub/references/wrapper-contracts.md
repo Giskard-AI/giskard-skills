@@ -1,6 +1,6 @@
 # Wrapper contracts
 
-Read when implementing the adapter and choosing its schemas. The authoritative wire formats are in [Hub agent setup](https://docs.giskard.ai/hub/ui/setup/agents); the wrapper must implement the schemas submitted during registration.
+Use the relevant schema and binding example while building the minimal adapter. The [Hub contract](https://docs.giskard.ai/hub/ui/setup/agents) describes JSON bodies transported over the wrapper's public HTTPS endpoint.
 
 ## Chat
 
@@ -25,7 +25,7 @@ Return one assistant message under `response`, with optional JSON metadata:
 }
 ```
 
-Do not return a bare string, an OpenAI-style `choices` envelope, or native stream events. Adapt those native formats inside the wrapper. These schemas cover a text-chat wrapper; expand fields deliberately if the actual contract needs them:
+Adapt native strings, `choices` envelopes, and stream events inside the wrapper. **Register these canonical Chat schemas verbatim.** Hub versions that detect Chat by exact schema equality treat added titles, constraints, or properties as Structured; their connection probe can then send `role: "test"` and trigger HTTP 422. Keep Pydantic-generated schemas and stricter role/history validation inside the wrapper, separate from the published schemas:
 
 ```python
 CHAT_INPUT_SCHEMA = {
@@ -33,7 +33,6 @@ CHAT_INPUT_SCHEMA = {
     "properties": {
         "messages": {
             "type": "array",
-            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
@@ -43,7 +42,6 @@ CHAT_INPUT_SCHEMA = {
                 "required": ["role", "content"],
             },
         },
-        "metadata": {"type": "object"},
     },
     "required": ["messages"],
 }
@@ -54,7 +52,7 @@ CHAT_OUTPUT_SCHEMA = {
         "response": {
             "type": "object",
             "properties": {
-                "role": {"type": "string", "const": "assistant"},
+                "role": {"type": "string"},
                 "content": {"type": "string"},
             },
             "required": ["role", "content"],
@@ -101,19 +99,14 @@ Pass `auto_bindings` explicitly to `hub.agents.create`. The [SDK reference](http
 | Structured target accepts a `session_id` | `[{"mode": "forward", "target": "session_id", "source": "$.session_id"}]` |
 | Independent calls with no conversation state | `[]` |
 
-`target` is the destination field path; `source` and `outputs_path` are JSONPaths into the previous output. Use paths present in the real schemas. Do not substitute guessed fields such as `input_path` or `output_path`.
+`target` is the destination field path; `source` and `outputs_path` are JSONPaths into the previous output. Use paths the wrapper actually accepts and returns. Do not substitute guessed fields such as `input_path` or `output_path`.
 
-For history aggregation, Hub combines earlier inputs and the selected assistant outputs with the next input. The wrapper consumes that resulting history once. For forwarding, make the state field optional in the input schema because the first request has no state. Create a fresh conversation on that first call and return its identifier in the declared output field on every successful turn. Add typed state properties to both schemas. Use only the current turn with a forwarded session unless the native API explicitly also requires history; enable both binding modes only in that case.
+For history aggregation, the wrapper consumes Hub's combined history once. For forwarding, accept an absent state field on the first call, create a fresh conversation, and return its identifier on each successful turn. Chat wrappers can accept optional `metadata.thread_id` without changing the canonical schemas; Structured schemas should declare optional input state and returned output state. Use only the current turn with a forwarded session unless the native API also requires history.
 
 ## Collecting a native stream
 
-Use the target SDK's final-result helper if one exists. Otherwise implement a collector for its actual event format:
+Prefer a non-streaming call or the target SDK's final-result helper. Otherwise consume the iterator through successful completion. Concatenate text deltas in order; replace cumulative snapshots rather than concatenating them. Keep tool/status events out of the answer, and do not append a final full-text event to already collected deltas.
 
-1. Authenticate and validate before opening the upstream request. Request non-streaming operation if supported.
-2. Consume the entire iterator or async iterator. For remote SSE/NDJSON, parse complete protocol events across network-buffer boundaries; a socket chunk is not necessarily a message.
-3. Accumulate answer **deltas in order**. For cumulative snapshots, replace the previous snapshot instead of concatenating it. Handle tool/status events separately from the answer. Never append both deltas and a final full-text event, which would duplicate the answer.
-4. Require the native protocol's successful terminal state. A documented normal iterator exhaustion may be completion; a broken connection or missing required completion marker is a failure. A tool-call finish event is not necessarily the end of an agent run.
-5. For Structured output, assemble all fragments before parsing and validating the final JSON object. Preserve any final session identifier or other declared metadata.
-6. On success, build the Hub response in memory and send it once using the framework's normal JSON response API. On timeout or error, cancel/close the upstream request and send a sanitized failure. Do not send a success status or flush body bytes while generation is in progress.
+For remote SSE/NDJSON, parse complete events across network-buffer boundaries. For Structured output, assemble the fragments before parsing the final object. Preserve the final session ID and declared metadata. A disconnect or missing required completion marker is a failure, not a completed answer.
 
-Set byte and duration limits; do not collect an unbounded stream. Test delta streams, cumulative snapshots if used by this target, and final events so the adapter cannot silently truncate or duplicate an answer. HTTP transport framing alone does not determine streaming: the required behavior is one complete JSON document emitted only after generation finishes.
+Return a normal JSON response only after completion. Bound collection by size and time; close the upstream stream on failure and return a sanitized error. Use the first Hub connection test to identify problems; add collector-specific tests only to investigate a failure or satisfy an explicit requirement.

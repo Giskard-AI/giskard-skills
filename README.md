@@ -19,7 +19,7 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
     <tr>
       <td>agent-to-hub</td>
       <td><code>npx skills add Giskard-AI/giskard-skills --skill agent-to-hub</code></td>
-      <td>Use when a user wants to connect a local or remote agent to Giskard Hub. Creates an authenticated HTTP wrapper with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and registers and tests the agent through the Hub SDK.</td>
+      <td>Use when a user wants to connect a local or remote agent to Giskard Hub. Creates an authenticated HTTPS endpoint with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and uses the Hub SDK connection test to guide any fixes.</td>
     </tr>
     <tr>
       <td>scenario-generator</td>

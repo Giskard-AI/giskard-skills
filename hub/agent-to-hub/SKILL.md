@@ -1,100 +1,73 @@
 ---
 name: agent-to-hub
-description: Connect an existing local or remote AI agent to Giskard Hub. Use when a user asks to connect, integrate, or register their agent with the Hub. Builds an authenticated, non-streaming HTTP wrapper, deploys it or exposes it through a local tunnel, registers it with the Hub SDK, and verifies the connection.
+description: Connect a local or remote AI agent to Giskard Hub through an authenticated, non-streaming HTTPS endpoint. Use when a user asks to connect, integrate, or register their agent with the Hub. Build a minimal wrapper, deploy or tunnel it, and use the Hub SDK connection test to guide any fixes.
 license: Apache-2.0
 metadata:
   author: Giskard
   version: 1.0.0
   category: integration
-  tags: [giskard, hub, agent, integration, http, tunnel]
+  tags: [giskard, hub, agent, integration, https, tunnel]
 ---
 
 # Agent to Hub
 
-Complete the connection, from working wrapper code to a successful Hub connection test. Use the target's language, framework, deployment setup, and the coding agent's available tools; no particular editor, agent host, or cloud provider is required. Supporting paths are relative to this skill directory.
+Get to the first Hub connection attempt quickly: build the smallest adapter, expose it over HTTPS, register it, and use Hub's connection test to guide fixes. Use the target's stack and the coding agent's available tools. Supporting paths are relative to this skill directory.
 
-## Gather the connection details
+Do not create a test suite, run broad audits or extra review passes, refactor unrelated code, or write extensive documentation before the first Hub attempt. Honor required project checks without turning this connection task into a general hardening exercise.
 
-Inspect the target's entry point or remote API, input/output types, credentials, streaming behavior, and conversation state. Determine where it runs and whether its remote source and deployment are readily accessible. Infer the agent's name, purpose, and supported languages from the project; ask about material gaps instead of inventing capabilities.
+## 1. Gather the essentials
 
-Ask the user for these values, requesting only those not already supplied:
+Locate the target's callable/API, input/output shape, streaming behavior, and conversation state. Infer its name, description, and supported languages. Ask only for missing connection details:
 
-- **Hub URL**: the base URL of their Giskard Hub instance.
-- **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key). Let them provide it through a secure input mechanism or set `GISKARD_HUB_API_KEY` in the execution environment and confirm it is ready.
-- **Hub project name or project ID**: resolve a name using `hub.projects.list()`; ask if the match is ambiguous. Verify an ID with `hub.projects.retrieve(project_id)`. Do not select the first project or create a new one implicitly.
+- **Hub URL**.
+- **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
+- **Hub project name or ID**.
 
-Use `GISKARD_HUB_BASE_URL` and `GISKARD_HUB_API_KEY` for SDK authentication. Generate a **separate** cryptographically random wrapper key, such as 32 random bytes encoded for an HTTP header, and store it as `AGENT_WRAPPER_API_KEY` in the wrapper's environment or secret store. Keep the Hub key, wrapper key, target's own credentials, and any tunnel token distinct. Never commit or print secrets, include them in URLs, or dump SDK agent objects that contain headers. An environment file must be excluded from version control and loaded explicitly by the relevant process.
+As soon as credentials are available, instantiate `HubClient` and resolve the project with `hub.projects.list()` or `hub.projects.retrieve(project_id)`. This checks Hub access early. Ask about ambiguous matches; do not choose the first project implicitly.
 
-Continue inspecting and implementing the wrapper while waiting for Hub details; registration requires all three values.
+Use `GISKARD_HUB_BASE_URL` and `GISKARD_HUB_API_KEY` for the SDK. Generate a separate cryptographically random `AGENT_WRAPPER_API_KEY` for the wrapper. Keep secrets in the environment, an explicitly loaded and git-ignored `.env`, or a secret store; never in code, URLs, or logs. Never send the Hub key to the wrapper.
 
-For a local wrapper, explain **before opening a tunnel**:
+## 2. Build the minimal adapter
 
-> I’ll open a public HTTPS connection to your local wrapper so Giskard Hub can reach it. The wrapper will require an API key and reject requests with a missing or invalid key. The connection stays available only while the wrapper and tunnel are running.
+Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured schemas and multi-turn bindings, following the [Hub contract](https://docs.giskard.ai/hub/ui/setup/agents). For Chat, publish the canonical schemas verbatim; keep stricter runtime validation separate. Reuse existing dependencies where practical.
 
-This is an upfront disclosure, not a separate confirmation gate. Proceed within the user's authorization and the environment's execution permissions.
+- Implement a JSON `POST` route, e.g. `/giskard/invoke`, around the actual target, with matching input/output schemas.
+- Require `X-API-Key` or equivalent authentication before invoking the target. Refuse startup with an empty configured key; use constant-time comparison and reject missing/wrong keys with `401` or `403`.
+- Return one complete `application/json` response. **Never stream to Hub.** Prefer a non-streaming call; otherwise consume the target's stream to completion and assemble the final answer/object. Preserve history or per-conversation state where supported.
+- Use a finite timeout and return sanitized errors on failure, without partial answers or secrets.
 
-## Build the HTTP wrapper
+Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. This does not invoke the model. Proceed without additional local inference, stream simulations, history tests, or a generated test suite.
 
-Read [wrapper-contracts.md](references/wrapper-contracts.md) and the current [Hub agent contract](https://docs.giskard.ai/hub/ui/setup/agents). Implement an actual adapter around the discovered target, including dependencies and startup configuration. Do not leave a stub for the user to fill in.
+## 3. Expose an HTTPS endpoint
 
-- Expose a JSON `POST` route, for example `/giskard/invoke`. Choose **Chat** for message conversations or **Structured** for custom JSON inputs and outputs. Define explicit input and output JSON Schemas that match the implemented bodies.
-- Require `X-API-Key` on every invocation (or an existing equally strong authentication mechanism). Refuse to start if the configured key is absent or empty. Compare secrets using the runtime's constant-time comparison facility; missing or wrong keys must return `401` or `403` **before invoking the target**. Keep authentication enabled during testing and deployment.
-- Validate the request, adapt it to the target, and return only a complete JSON result with `Content-Type: application/json`. Reject invalid bodies with an appropriate `4xx`; return sanitized `5xx` errors for upstream failures. Do not expose credentials or stack traces.
-- **Never return a streaming response.** Prefer the target's non-streaming API when available. Otherwise consume its stream through successful completion, assemble the final answer or object, then serialize one Hub-compatible response. Do not forward SSE, NDJSON, WebSocket frames, generator responses, or token events to Hub.
-- Preserve real multi-turn behavior: pass history to stateless targets or propagate per-conversation state to stateful targets. Do not share a global session across Hub conversations or silently discard earlier messages. Configure the matching `auto_bindings` at registration.
-- Set finite upstream/overall timeouts and response-size limits appropriate to the target. If generation times out, disconnects before completion, or exceeds a limit, close the upstream stream and return an error, never partial success. Ensure the deployment and tunnel timeouts can accommodate a full buffered response.
+**The URL registered with Hub must use `https://` with certificate verification enabled.** TLS can terminate at the tunnel or reverse proxy; `http://127.0.0.1` is only the private loopback hop. It is not the Hub endpoint and does not need a self-signed certificate.
 
-Test the generated adapter before exposing it: missing and incorrect keys reject without running the target; an authenticated request returns schema-valid JSON; a delayed multi-chunk target produces the full answer only after completion; an interrupted stream fails without a partial answer. For multi-turn targets, test a dependent second turn and an independent conversation to verify context and isolation. Use representative native events when testing a streaming adapter.
+For an easily editable remote target, create and deploy the wrapper on that host using its existing deployment and HTTPS ingress. Otherwise run a separate adapter; a local adapter needs a tunnel.
 
-## Make the wrapper reachable
+For a local wrapper, tell the user **before opening the tunnel**:
 
-### Remote target that is easy to edit
+> I’ll open a public HTTPS connection to your local wrapper so Giskard Hub can reach it. Requests remain protected by the wrapper's API key. Keep the wrapper and tunnel running while using the agent in Hub.
 
-When the remote target has accessible source and an established deployment path, **create and deploy the wrapper on that remote host** using its existing service, container, or application deployment. Configure the wrapper key in the remote secret environment, install its dependencies, deploy the adapter, and verify the actual HTTPS route. Account for reverse-proxy routing and request timeouts. Use the existing deployment mechanism rather than assuming SSH, a particular cloud, or a new infrastructure stack.
-
-If access is missing, request the specific source/deployment access needed and finish any independent implementation work. When the remote target cannot reasonably be edited, build a separate adapter that calls its API; if this adapter runs locally, follow the local tunnel procedure below. Keep the target's native credentials server-side.
-
-### Local target and wrapper, or any local adapter
-
-After the disclosure and local authentication tests, start the wrapper on a dedicated loopback port (for example `127.0.0.1:8080`) and **open** a Cloudflare quick tunnel or ngrok tunnel. Expose only the wrapper service, not an unrelated development server or the unauthenticated native agent API.
-
-Prefer an already configured provider. Otherwise [Cloudflare quick tunnels](https://developers.cloudflare.com/tunnel/get-started/#quick-tunnels-development) work without a Cloudflare account. Install the appropriate official CLI if needed and allowed, then run:
+Then open a [Cloudflare quick tunnel](https://developers.cloudflare.com/tunnel/get-started/#quick-tunnels-development) or an already configured [ngrok](https://ngrok.com/) tunnel. Install the official CLI if needed and permitted. Choose one:
 
 ```sh
 cloudflared tunnel --url http://127.0.0.1:8080
-```
-
-Read the actual HTTPS `trycloudflare.com` URL from the process output. Quick tunnels are for development, have no uptime guarantee, and do not support SSE; the wrapper must still buffer any upstream stream.
-
-Alternatively, use [ngrok](https://ngrok.com/) and its [local endpoint quickstart](https://ngrok.com/docs/share-localhost/quickstart). Configure the user's ngrok account token securely if needed, then run:
-
-```sh
+# Or:
 ngrok http 8080
 ```
 
-Use the reported HTTPS forwarding URL. Avoid browser-login gates that prevent Hub's HTTP requests from reaching the authenticated wrapper. Provider account authentication does not replace the wrapper's API key.
+Expose only the wrapper service. Append its invocation path to the **actual HTTPS URL** reported by the tunnel. Keep both processes running in persistent sessions and proceed directly to registration; a successful public `curl` from the developer's machine is not a prerequisite.
 
-Run the wrapper and tunnel in persistent process sessions supported by the environment. Record their process/session identifiers, log locations, and concrete restart/stop commands without secrets. Keep both running for subsequent Hub use; do not kill them when the connection test ends. If the environment cannot keep processes alive, explain that limitation and arrange a user-managed session before claiming the endpoint is ready.
+## 4. Register, test, and fix only what fails
 
-### Verify the deployed route
+Use Python 3.10+ and the **`giskard-hub` SDK**; see [hub-sdk.md](references/hub-sdk.md) for the short example and authoritative docs.
 
-Append the invocation path to the real remote or tunnel URL, e.g. `https://assigned-host/giskard/invoke`. Send requests to **that exact URL** with no key, a wrong key, and the correct key. Require authentication failures for the first two and a complete schema-valid response for the third. A working local port, tunnel startup message, health route, HTML page, or login redirect is not sufficient evidence. Never register `localhost`, a fabricated domain, or just the tunnel root when the wrapper uses a subpath.
+1. Call `hub.agents.create` with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead.
+2. Retain the returned ID and **immediately call `hub.agents.test_connection`** with that ID, URL, project, headers, and input schema. Hub makes the request to the wrapper; local DNS trouble reaching the tunnel does not establish that Hub cannot reach it.
+3. Inspect the actual result and error details. If it fails, fix the reported URL, credentials, adapter, schema, or network issue and re-test the same registration. Do not recreate agents or perform speculative refactoring. Stop with a concrete blocker if credentials, permissions, or connectivity cannot be obtained.
 
-## Register and test through Hub
+The default verification is this Hub connection test. Use `generate_completion`, history tests, or focused regression tests only when requested or needed to investigate a specific failure. Keep authentication and TLS verification enabled throughout.
 
-Read [hub-sdk.md](references/hub-sdk.md). Use Python 3.10+ and the **`giskard-hub` SDK**, installing it in the project's environment or a dedicated virtual environment. The wrapper itself can use any language. Consult the [SDK introduction](https://docs.giskard.ai/hub/sdk), [agent guide](https://docs.giskard.ai/hub/sdk/guides/agents-and-knowledge-bases), and [API reference](https://docs.giskard.ai/hub/sdk/reference) for the installed version.
+## 5. Finish
 
-Once the real endpoint is reachable and the project is resolved:
-
-1. Instantiate `HubClient` with the user's Hub URL and Hub API key.
-2. Call `hub.agents.create` with `project_id`, `name`, meaningful `description`, full `url`, authentication `headers`, actual `supported_languages`, `input_schema`, `output_schema`, and explicit `auto_bindings`. Use aggregate history or forwarded state for multi-turn support and `[]` for independent calls.
-3. Save the returned agent ID without secrets. After creation, call `hub.agents.test_connection` with `agent_id`, `url`, `project_id`, the same authentication `headers`, and `input_schema`. Inspect errors and validate the returned payload; an HTTP success or a created record alone does not mean the connection works.
-4. Optionally use `hub.agents.generate_completion` for a short, harmless playground-style check. Use a second turn with `interactions` when verifying Hub's multi-turn bindings, and check the returned `error` and `output` rather than assuming success.
-
-If a test fails, diagnose the wrapper, authentication, schema, URL, or binding issue, fix it, and re-test the existing registration. Do not create duplicate agents on each retry. After an ambiguous create timeout, list agents in the selected project and reconcile the name/URL before retrying. If a required credential, permission, or network route is unavailable, state the exact blocker and the next action; do not claim completion or retry indefinitely. Do not weaken authentication to make a test pass.
-
-## Finish
-
-Only tell the user everything works after endpoint authentication checks, schema checks, and the **post-create Hub connection test** succeed, along with any additional checks you ran. Report the agent name and ID, selected project, endpoint, contract mode, and verification outcome. Include where the wrapper and registration code live and how to run them.
-
-For a tunnel, explain that this is a temporary public connection protected by the wrapper key; keep the processes alive and give their stop/restart instructions. If the public URL changes, update the same agent with `hub.agents.update(agent_id, url=new_url)` and run `test_connection` again. Do not claim an unfinished deployment or failing check is working.
+Once Hub verifies the connection, tell the user it works and provide the HTTPS endpoint, agent ID, project, and brief run/stop instructions. Keep a local wrapper and tunnel alive; explain their temporary lifetime. If the tunnel URL changes, update the same Hub agent and re-test. Do not continue into extra testing or documentation by default.
