@@ -1,0 +1,50 @@
+name: Plugin smoke tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [packaging, claude, grok, skills]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: '3.14'
+          cache-dependency-glob: scripts/requirements-smoke.txt
+      - uses: actions/setup-node@v7
+        if: matrix.target == 'claude' || matrix.target == 'skills'
+        with:
+          node-version: '24'
+      - name: Check shared packaging
+        run: uv run --no-project --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py packaging
+      - name: Validate Claude plugin
+        if: matrix.target == 'claude'
+        env:
+          DISABLE_TELEMETRY: '1'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+        run: npx --yes @anthropic-ai/claude-code@2.1.263 plugin validate .
+      - name: Fetch pinned Grok indexer
+        if: matrix.target == 'grok'
+        run: >-
+          curl --fail --silent --show-error --location --retry 3
+          https://raw.githubusercontent.com/xai-org/plugin-marketplace/31403998c11af557a21c2c3b4ffd983c3a5f0c84/scripts/plugin_catalog.py
+          --output "$RUNNER_TEMP/plugin_catalog.py"
+      - name: Check Grok discovery
+        if: matrix.target == 'grok'
+        run: uv run --no-project --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py grok --grok-catalog "$RUNNER_TEMP/plugin_catalog.py"
+      - name: Check skills CLI installation
+        if: matrix.target == 'skills'
+        run: uv run --no-project --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py skills

@@ -1,0 +1,10 @@
+# Python bytecode and local environments
+__pycache__/
+*.py[cod]
+.venv/
+
+# Tool and notebook caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/

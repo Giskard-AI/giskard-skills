@@ -93,6 +93,26 @@ Installation uses GitHub, package registries, and optional tunnel CLI downloads.
 
 Scenario generation, simulated conversations, LLM judges, embeddings, automatic scans, and calls to your target agent can incur model-provider or agent-service charges. Costs depend on the selected models, document volume, scenario count, conversation turns, and reruns. Hub, Collibra, deployment, and tunnel services are subject to your existing service plans. Installing the skills does not include service access or API credits.
 
+## Development checks
+
+See [AGENTS.md](AGENTS.md) for the maintenance checklist when changing skills, manifests, or plugin support. The [smoke-test workflow](.github/workflows/plugin-smoke.yml) checks packaging, Claude validation, Grok discovery, and skills CLI installation without model calls or service credentials.
+
+CI uses uv-managed Python 3.14 and Node.js 24 LTS. With `uv`, Node.js, and `npx` installed, run from the repository root (uv installs Python and the smoke-test dependencies as needed):
+
+```bash
+uv run --no-project --python 3.14 --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py packaging
+npx --yes @anthropic-ai/claude-code@2.1.263 plugin validate .
+uv run --no-project --python 3.14 --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py skills
+```
+
+For Grok, download the pinned `plugin_catalog.py` using the URL in the workflow, then run:
+
+```bash
+uv run --no-project --python 3.14 --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py grok --grok-catalog /path/to/plugin_catalog.py
+```
+
+The checks use tracked files with their current working-tree contents, so stage new skills before running them. Installation checks use temporary projects, verify bundled references and scripts, and disable skills CLI telemetry. External tool downloads require network access. These checks do not replace testing a skill's behavior in an agent.
+
 ## License
 
 This repository is licensed under [Apache-2.0](LICENSE).
