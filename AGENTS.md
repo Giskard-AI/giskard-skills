@@ -17,6 +17,7 @@ Follow the commands in the README's **Development checks** section. `.github/wor
 - The skills CLI check installs into a temporary project for Claude Code, Cursor, and Grok and compares every tracked skill file, including references and scripts, with the installed copy.
 - Keep smoke tests free of model calls, service credentials, live exports, and tunnels. They verify packaging and discovery, not whether an agent follows the skill correctly. They must not install skills globally or modify the developer's agent configuration.
 - External tools are pinned: Claude and the Grok indexer in the workflow, the skills CLI in `scripts/smoke_plugins.py`, and Python dependencies in `scripts/requirements-smoke.txt`. Update pins deliberately and rerun the relevant checks.
+- When changing GitHub Actions versions, verify the exact tag or commit exists and contains `action.yml`. A release such as `v10.2.0` does not guarantee a `v10` alias exists. Pin setup-uv to its verified release commit with a version comment.
 
 ## New plugin or marketplace support
 
