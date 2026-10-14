@@ -971,8 +971,7 @@ def cmd_agents(opts: argparse.Namespace) -> None:
 def split_payload(payload: dict, max_bytes: int) -> list[dict]:
     """Split a SuiteResult payload into parts whose scenarios stay under max_bytes of JSON.
 
-    The Hub processes an upload in one request, and a very large request can fail or
-    exhaust the Hub's memory (a 105 MB suite did). Each part becomes its own evaluation.
+    Used with --max-upload-mb when a Hub rejects a large upload. Each part becomes its own evaluation.
     """
     parts: list[list] = [[]]
     size = 0
@@ -1004,7 +1003,7 @@ def cmd_upload(opts: argparse.Namespace) -> None:
             scenarios = payload["results"]
             tool = next((s.get("final_trace", {}).get("annotations", {}).get("source_tool") for s in scenarios[:1]), None)
             base_name = opts.name or f"{tool or 'third-party'} results ({datetime.now():%Y-%m-%d %H:%M})"
-            parts = split_payload(payload, int(opts.max_upload_mb * 1_000_000))
+            parts = split_payload(payload, int(opts.max_upload_mb * 1_000_000)) if opts.max_upload_mb else [payload]
             for index, part in enumerate(parts, start=1):
                 name = base_name if len(parts) == 1 else f"{base_name} (part {index}/{len(parts)})"
                 try:
@@ -1017,7 +1016,10 @@ def cmd_upload(opts: argparse.Namespace) -> None:
                     )
                 except Exception as exc:
                     done = ", ".join(f"{u['name']} ({u['evaluation_id']})" for u in uploaded) or "none"
-                    raise RuntimeError(f"Upload of '{name}' from {raw} failed: {exc}. Already uploaded: {done}. Do not upload those again.") from exc
+                    raise RuntimeError(
+                        f"Upload of '{name}' from {raw} failed: {exc}. Already uploaded: {done}. "
+                        "The file may be too big for this Hub. If so, upload it again with --max-upload-mb to split it."
+                    ) from exc
                 uploaded.append({
                     "file": raw,
                     "tool": tool,
@@ -1086,7 +1088,7 @@ def main() -> None:
             command.add_argument("--agent-id", help="Optional Hub agent to link the evaluations to.")
             command.add_argument("--name", help="Evaluation name, for a single file. Default: '<tool> results (<date>)'.")
             command.add_argument("--auto-classify-failures", action="store_true", help="Ask the Hub to classify the failure category of each failed scenario.")
-            command.add_argument("--max-upload-mb", type=float, default=8, help="Split a suite into several evaluations so that each upload stays under this size. Very large uploads can fail or overload the Hub. Default: 8.")
+            command.add_argument("--max-upload-mb", type=float, help="Split each file into several evaluations of at most this size. Use it when the Hub rejects a large upload. By default, each file is uploaded in one request.")
         command.set_defaults(func={"projects": cmd_projects, "agents": cmd_agents, "upload": cmd_upload}[name])
 
     opts = parser.parse_args()

@@ -2,6 +2,15 @@
 
 Use this reference to explain a converted suite, or to fix the converter when a tool changes its format.
 
+## Inputs and counts
+
+| Tool | Where to find the file | Notes | The tool's own counts |
+| --- | --- | --- | --- |
+| garak | `~/.local/share/garak/garak_runs/` | Use the `report.jsonl`, not the hitlog or the HTML report. garak does not record a custom `eval_threshold`, so pass `--garak-threshold`. | The `eval` lines, per probe and detector. |
+| promptfoo | The `-o` path, or `promptfoo export eval latest -o results.json` | CSV, HTML, XML, and YAML outputs are not supported. | `results.stats` |
+| DeepTeam | The folder given to `save()` or `-o` | Results that exist only in Confident AI cannot be converted. | The `test_cases` list. The `overview` counts are not reliable. |
+| PyRIT | `dbdata/pyrit.db` in the user data folder or the PyRIT repository | The database keeps every run. Use the `--pyrit-*` filters. DuckDB and Azure SQL need an `export_conversations` JSON file. | The `outcome` column of `AttackResultEntries`. |
+
 ## Target format
 
 The converter writes one Giskard OSS `SuiteResult` per tool. It uses these classes from `giskard.checks`:
@@ -91,7 +100,7 @@ The converter keeps the whole suite in memory. These measurements come from larg
 
 The garak report is read line by line. The other JSON inputs are loaded at once. The PyRIT database is read with one query per 500 IDs, because its columns have no index and the database opens read-only.
 
-The upload command splits each suite into parts of at most 8 MB, and each part becomes one evaluation. It does not retry a failed upload, because a retry can create a duplicate evaluation.
+The upload command sends each suite in one request. Hubs have different size limits, and an oversized request can fail with a generic server error. With `--max-upload-mb`, the command splits each suite into parts of at most that size, and each part becomes one evaluation. In a test, an 18 MB suite uploaded as three 8 MB parts, and a single 105 MB request failed. The command does not retry a failed upload, because a retry can create a duplicate evaluation.
 
 ## Change the converter
 
