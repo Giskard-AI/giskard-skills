@@ -13,6 +13,7 @@ SKIP means the tool reached no verdict.
 import argparse
 import json
 import os
+import re
 import sys
 import traceback
 from collections import defaultdict
@@ -349,8 +350,45 @@ def _promptfoo_interactions(record: dict) -> tuple[list[tuple], list[Any]]:
     return [(prompt, output, {})], []
 
 
+def _promptfoo_db(path: Path, opts: argparse.Namespace) -> list[dict]:
+    """Rebuild one `promptfoo export` document per run of a promptfoo.db.
+
+    ponytail: runs saved before results version 4 keep their rows in evals.results and are skipped.
+    """
+    import sqlite3
+
+    json_columns = {"config", "results", "test_case", "prompt", "provider", "response", "grading_result", "named_scores", "metadata"}
+    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+
+    def rows(sql: str, *params: Any) -> list[dict]:
+        # snake_case columns become the camelCase keys of the export: test_case -> testCase.
+        return [
+            {re.sub(r"_([a-z])", lambda m: m[1].upper(), k): json.loads(v) if k in json_columns and isinstance(v, str) else v for k, v in dict(r).items()}
+            for r in con.execute(sql, params)
+        ]
+
+    runs = []
+    for ev in rows("SELECT * FROM evals ORDER BY created_at"):
+        results = rows("SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx", ev["id"])
+        if results and (not opts.promptfoo_eval_id or ev["id"] in opts.promptfoo_eval_id):
+            runs.append({"evalId": ev["id"], "config": ev["config"], "results": {"stats": ev["results"], "results": results}})
+    return runs
+
+
 def convert_promptfoo(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
-    raw = load_json(path)
+    with path.open("rb") as handle:
+        is_db = handle.read(16) == b"SQLite format 3\x00"
+    scenarios: list = []
+    duration_ms = 0
+    for raw in _promptfoo_db(path, opts) if is_db else [load_json(path)]:
+        converted, duration = _promptfoo_run(raw, path)
+        scenarios += converted
+        duration_ms += duration
+    return scenarios, duration_ms
+
+
+def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
     if isinstance(raw, list):  # -o results.jsonl: one EvaluateResult per line
         data: dict = {"results": {"results": raw}}
     else:
@@ -421,6 +459,7 @@ def convert_promptfoo(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
 
         tags = [
             *config_tags,
+            f"eval-id:{data['evalId']}" if data.get("evalId") else None,
             f"plugin:{plugin}" if plugin else None,
             f"strategy:{strategy or 'basic'}" if plugin else None,
             f"severity:{test_meta['severity']}" if test_meta.get("severity") else None,
@@ -1039,6 +1078,7 @@ On failure, the command prints {"error": "..."} on stdout and exits with code 1.
 examples:
   %(prog)s convert --tool garak run1.report.jsonl run2.report.jsonl
   %(prog)s convert --tool promptfoo results.json --group-by plugin --group-by severity
+  %(prog)s convert --tool promptfoo ~/.promptfoo/promptfoo.db --group-by eval-id
   %(prog)s convert --tool deepteam deepteam-results/20260101_120000.json --output out/deepteam.json
   %(prog)s convert --tool pyrit ~/.local/share/dbdata/pyrit.db --pyrit-label op_name=nightly --group-by attack
   %(prog)s projects
@@ -1067,6 +1107,7 @@ def main() -> None:
     convert.add_argument("--output", help="Output JSON path. Default: giskard_results/<tool>_suite_result.json.")
     convert.add_argument("--group-by", action="append", metavar="TAG_KEY", help="Add pass/fail counts per value of this tag key to the summary. Repeatable.")
     convert.add_argument("--garak-threshold", type=float, default=0.5, help="garak eval_threshold of the run. A detector score >= threshold is a FAIL. garak does not record it. Default: 0.5.")
+    convert.add_argument("--promptfoo-eval-id", action="append", metavar="ID", help="With a promptfoo.db, keep only this eval (run) ID. Repeatable. Default: every run that has results.")
     pyrit = convert.add_argument_group("PyRIT options")
     pyrit.add_argument("--pyrit-label", action="append", metavar="KEY=VALUE", type=_key_value, help="Keep only attacks or conversations with this memory label (e.g. op_name=nightly). Repeatable, all must match.")
     pyrit.add_argument("--pyrit-scenario-id", action="append", metavar="ID", help="Keep only attacks of this ScenarioResult ID. Repeatable.")

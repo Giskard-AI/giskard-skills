@@ -7,7 +7,7 @@ Use this reference to explain a converted suite, or to fix the converter when a 
 | Tool | Where to find the file | Notes | The tool's own counts |
 | --- | --- | --- | --- |
 | garak | `~/.local/share/garak/garak_runs/` | Use the `report.jsonl`, not the hitlog or the HTML report. garak does not record a custom `eval_threshold`, so pass `--garak-threshold`. | The `eval` lines, per probe and detector. |
-| promptfoo | The `-o` path, or `promptfoo export eval latest -o results.json` | CSV, HTML, XML, and YAML outputs are not supported. | `results.stats` |
+| promptfoo | The `-o` path, `promptfoo export eval latest -o results.json`, or `~/.promptfoo/promptfoo.db` | CSV, HTML, XML, and YAML outputs are not supported. The database keeps every run. Use `--promptfoo-eval-id`. | `results.stats`, or the `success` and `failure_reason` columns of `eval_results` |
 | DeepTeam | The folder given to `save()` or `-o` | Results that exist only in Confident AI cannot be converted. | The `test_cases` list. The `overview` counts are not reliable. |
 | PyRIT | `dbdata/pyrit.db` in the user data folder or the PyRIT repository | The database keeps every run. Use the `--pyrit-*` filters. DuckDB and Azure SQL need an `export_conversations` JSON file. | The `outcome` column of `AttackResultEntries`. |
 
@@ -56,11 +56,11 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 
 | Item | Mapping |
 | --- | --- |
-| Input | The `-o` JSON `OutputFile`, the JSONL lines, or the `{"data": ...}` share wrapper. Results version 2 and 3 both work. |
+| Input | The `-o` JSON `OutputFile`, the JSONL lines, or the `{"data": ...}` share wrapper. Results version 2 and 3 both work. The SQLite database `promptfoo.db` also works. It opens read-only, and each row of `evals` with rows in `eval_results` becomes one run. Runs saved before results version 4 are skipped, because their rows are in `evals.results`. |
 | Scenario | One per result row. A row is one test for one provider, prompt, and repeat. |
 | Interactions | `response.metadata.messages` for multi-turn strategies. Otherwise one interaction from `redteamFinalPrompt`, `response.prompt`, or `prompt.raw`, with `response.output`. Latency, tokens, cost, and guardrails go into the metadata of the last interaction. |
 | Checks | One per item of `gradingResult.componentResults`, named by the assertion metric or type. A test with a `threshold` gets one overall check, because promptfoo combines the assertions. `failureReason` 2 is an ERROR. The `error` field alone does not mean an error, because promptfoo also fills it for failed assertions. |
-| Tags | `plugin`, `strategy` (`basic` when absent), `severity`, `harm-category`, `provider`, `metric`, and the config tags. |
+| Tags | `eval-id`, `plugin`, `strategy` (`basic` when absent), `severity`, `harm-category`, `provider`, `metric`, and the config tags. |
 | Annotations | Eval ID, promptfoo version, description, vars, test metadata, success, score, failure reason, red-team history, and response metadata. |
 
 ## DeepTeam

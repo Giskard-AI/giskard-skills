@@ -24,11 +24,11 @@ Ask the user which tools they used and where the files are, if they did not say.
 | Tool | Result file |
 | --- | --- |
 | garak | `<prefix>.report.jsonl` |
-| promptfoo | The JSON or JSONL output of `eval`, `redteam`, or `export` |
+| promptfoo | The JSON or JSONL output of `eval`, `redteam`, or `export`, or the database `~/.promptfoo/promptfoo.db` |
 | DeepTeam | The JSON file from `risk_assessment.save()` |
 | PyRIT | The memory database `pyrit.db`, or a JSON export |
 
-If a file holds several runs, ask the user which runs to convert.
+If a file holds several runs, ask the user which runs to convert. To list the runs of a `promptfoo.db`, convert it with `--group-by eval-id`. Then convert the chosen runs with `--promptfoo-eval-id`.
 
 ## 2. Set up
 

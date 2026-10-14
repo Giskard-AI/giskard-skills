@@ -93,6 +93,26 @@ def promptfoo(tmp: Path) -> None:
     jsonl.write_text("\n".join(json.dumps(r) for r in records))
     assert statuses(convert("promptfoo", jsonl)) == statuses(scenarios)
 
+    # promptfoo.db: one row of evals per run, results in eval_results. A run without results is skipped.
+    db = tmp / "promptfoo.db"
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE evals (id, created_at, results, config);
+        CREATE TABLE eval_results (id, eval_id, prompt_idx, test_idx, test_case, prompt, provider, response, error, success,
+            score, grading_result, named_scores, metadata, failure_reason);
+        INSERT INTO evals VALUES ('eval-a', 1, '{"durationMs": 9}', '{}'), ('eval-b', 2, '{}', '{}'), ('eval-empty', 3, '{}', '{}');
+    """)
+    con.executemany("INSERT INTO eval_results VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+        (f"{e}{r['testIdx']}", e, 0, r["testIdx"], json.dumps(r.get("testCase") or {}), json.dumps(r["prompt"]), json.dumps(r["provider"]),
+         json.dumps(r["response"]), r.get("error"), r["success"], r["score"], json.dumps(r["gradingResult"]), "{}", "{}", r["failureReason"])
+        for e in ("eval-a", "eval-b") for r in records
+    ])
+    con.commit()
+    con.close()
+    from_db = convert("promptfoo", db)
+    assert statuses(from_db) == statuses(scenarios) * 2 and "eval-id:eval-a" in from_db[0]["tags"], statuses(from_db)
+    assert statuses(convert("promptfoo", db, "--promptfoo-eval-id", "eval-b")) == statuses(scenarios)
+
 
 def deepteam(tmp: Path) -> None:
     cases = [
