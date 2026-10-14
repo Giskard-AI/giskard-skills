@@ -95,29 +95,30 @@ def make_check(status: str, name: str, message: Any = None, details: dict | None
     )
 
 
-def chat_interaction(inputs: Any, outputs: Any, metadata: dict | None) -> Any:
-    """Build an Interaction in the Hub Chat format.
+def hub_interaction(inputs: Any, outputs: Any, metadata: dict | None) -> Any:
+    """Build an Interaction in a Hub format.
 
-    The Hub UI shows chat bubbles only for this format, and the Hub SDK cannot read back
-    plain-string interactions. Non-text content becomes JSON text, because Chat content is a string.
+    A dict is the body of a Structured agent and stays an object. Other content uses the Hub Chat
+    format: the Hub UI shows chat bubbles only for it, and the Hub SDK cannot read back plain-string
+    interactions. Lists and other non-text content become JSON text, because Chat content is a string.
     """
     from giskard.checks import Interaction
 
     def text(value: Any) -> str:
         return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
 
-    return Interaction(
-        inputs={"messages": [] if inputs is None else [{"role": "user", "content": text(inputs)}]},
-        outputs=None if outputs is None else {"response": {"role": "assistant", "content": text(outputs)}},
-        metadata=metadata or {},
-    )
+    if not isinstance(inputs, dict):
+        inputs = {"messages": [] if inputs is None else [{"role": "user", "content": text(inputs)}]}
+    if outputs is not None and not isinstance(outputs, dict):
+        outputs = {"response": {"role": "assistant", "content": text(outputs)}}
+    return Interaction(inputs=inputs, outputs=outputs, metadata=metadata or {})
 
 
 def make_scenario(tool: str, name: str, interactions: list[tuple], checks: list, tags: list[Any], annotations: dict, duration_ms: int = 0):
     from giskard.checks import ScenarioResult, TestCaseResult, Trace
 
     trace = Trace(
-        interactions=[chat_interaction(i, o, m) for i, o, m in interactions],
+        interactions=[hub_interaction(i, o, m) for i, o, m in interactions],
         annotations=compact({"source_tool": tool, "scenario_name": name, **annotations}),
     )
     step = TestCaseResult(
@@ -157,7 +158,7 @@ def _garak_interactions(attempt: dict, conversation: Any, output: Any) -> tuple[
     if prompt_turns:
         turns = [(t.get("role"), _garak_text(t.get("content")), _garak_meta(t.get("content"))) for t in prompt_turns]
         return pair_turns(turns + [("assistant", _garak_text(output), _garak_meta(output))])
-    return [(prompt, _garak_text(output), compact({"output": _garak_meta(output)}))], []
+    return [(_garak_text(prompt), _garak_text(output), compact({"output": _garak_meta(output)}))], []
 
 
 def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
@@ -331,6 +332,14 @@ def _promptfoo_checks(record: dict, test_meta: dict) -> list:
     return [make_check(status, "promptfoo", grading.get("reason") or record.get("error"), details, {"score": record.get("score")})]
 
 
+def _promptfoo_turn(message: dict) -> tuple:
+    """Return (role, content, metadata). Fields such as tool_calls or tool_call_id go into the metadata."""
+    extra = {k: v for k, v in message.items() if k not in ("role", "content")}
+    if message.get("content") is None and extra:  # an assistant message with only tool calls: show the calls
+        return message.get("role"), json.dumps(extra, ensure_ascii=False, default=str), {}
+    return message.get("role"), message.get("content"), extra
+
+
 def _promptfoo_interactions(record: dict) -> tuple[list[tuple], list[Any]]:
     response = record.get("response") or {}
     meta = response.get("metadata") or {}
@@ -342,11 +351,14 @@ def _promptfoo_interactions(record: dict) -> tuple[list[tuple], list[Any]]:
         except json.JSONDecodeError:
             messages = None
     if isinstance(messages, list) and messages:  # multi-turn strategies (crescendo, goat, hydra...)
-        return pair_turns([(m.get("role"), m.get("content"), {}) for m in messages if isinstance(m, dict)])
+        return pair_turns([_promptfoo_turn(m) for m in messages if isinstance(m, dict)])
     prompt = meta.get("redteamFinalPrompt") or response.get("prompt") or (record.get("prompt") or {}).get("raw")
     if isinstance(prompt, list):  # chat prompt as [{role, content}]
-        turns = [(m.get("role"), m.get("content"), {}) for m in prompt if isinstance(m, dict)]
-        return pair_turns(turns + [("assistant", output, {})])
+        return pair_turns([_promptfoo_turn(m) for m in prompt if isinstance(m, dict)] + [("assistant", output, {})])
+    test_vars = record.get("vars") or (record.get("testCase") or {}).get("vars")
+    if isinstance(output, dict) and isinstance(test_vars, dict) and test_vars:
+        # Structured agent: the provider returned an object, and the vars fill its request body.
+        return [(test_vars, output, {})], []
     return [(prompt, output, {})], []
 
 

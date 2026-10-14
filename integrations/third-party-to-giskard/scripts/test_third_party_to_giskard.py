@@ -113,6 +113,18 @@ def promptfoo(tmp: Path) -> None:
     assert statuses(from_db) == statuses(scenarios) * 2 and "eval-id:eval-a" in from_db[0]["tags"], statuses(from_db)
     assert statuses(convert("promptfoo", db, "--promptfoo-eval-id", "eval-b")) == statuses(scenarios)
 
+    # A Structured agent returns an object, and an agent with tools can answer with only tool calls.
+    agents = tmp / "agents.json"
+    agents.write_text(json.dumps({"results": {"results": [
+        result(0, True, 0, [component(True, "queue")], vars={"ticket": "charged twice"}, response={"output": {"queue": "billing"}}),
+        result(1, False, 1, [component(False, "ExcessiveAgency")], response={"output": "done", "metadata": {"messages": [
+            {"role": "user", "content": "Refund me"}, {"role": "assistant", "content": None, "tool_calls": [{"function": {"name": "refund"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"}, {"role": "assistant", "content": "done"}]}}),
+    ]}}))
+    structured, tools = (s["final_trace"]["interactions"] for s in convert("promptfoo", agents))
+    assert structured[0]["inputs"] == {"ticket": "charged twice"} and structured[0]["outputs"] == {"queue": "billing"}, structured
+    assert "refund" in tools[0]["outputs"]["response"]["content"] and tools[1]["metadata"]["output"] == {"tool_call_id": "c1"}, tools
+
 
 def deepteam(tmp: Path) -> None:
     cases = [

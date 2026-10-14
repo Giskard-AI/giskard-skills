@@ -22,7 +22,7 @@ The converter writes one Giskard OSS `SuiteResult` per tool. It uses these class
 | Step | `TestCaseResult` | The check results, and `last_interaction_index` set to the last interaction. |
 | Check | `CheckResult` | One verdict. `details["check_name"]` names it. `message` holds the reason. `metrics` holds the numeric scores. |
 | Trace | `Trace` | `interactions` holds the conversation. `annotations` holds the source identifiers and the tool metadata. |
-| Interaction | `Interaction` | `inputs` is `{"messages": [{"role": "user", "content": <text sent to the target>}]}`. `outputs` is `{"response": {"role": "assistant", "content": <reply>}}`. `metadata` holds per-turn data. |
+| Interaction | `Interaction` | Chat format: `inputs` is `{"messages": [{"role": "user", "content": <text sent to the target>}]}` and `outputs` is `{"response": {"role": "assistant", "content": <reply>}}`. Structured format: `inputs` and `outputs` are the objects of a Structured agent. `metadata` holds per-turn data. |
 
 The output file is `SuiteResult.to_hub_format()`. Load it again with `SuiteResult.model_validate_json(...)`. After a reload, `final_trace` is a plain dict.
 
@@ -33,7 +33,7 @@ The output file is `SuiteResult.to_hub_format()`. Load it again with `SuiteResul
 - Tags use `key:value`, so `SuiteResult.group_by(key)` works. Every scenario has `tool:<tool>`.
 - Keep every source field that can help a reviewer. Put per-turn data in the interaction metadata, and everything else in the annotations. The `compact` helper removes empty values.
 - Pair turns with `pair_turns`. It makes one interaction per user turn and its reply, and it returns the system prompts separately. Put the system prompts in the annotations.
-- `make_scenario` writes each interaction in the Hub Chat format. The Hub UI shows chat bubbles only for this format, and the Hub SDK cannot read plain-string interactions back. Content that is not text becomes JSON text, because Chat content is a string.
+- `make_scenario` keeps a dict input or output as an object, in the Hub Structured format. It writes all other content in the Hub Chat format. The Hub UI shows chat bubbles only for Chat, and the Hub SDK cannot read plain-string interactions back. Lists and other content that is not text become JSON text, because Chat content is a string. Give a dict only when the tool recorded the object that the target received or returned.
 
 ## What Giskard Hub keeps
 
@@ -58,7 +58,7 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 | --- | --- |
 | Input | The `-o` JSON `OutputFile`, the JSONL lines, or the `{"data": ...}` share wrapper. Results version 2 and 3 both work. The SQLite database `promptfoo.db` also works. It opens read-only, and each row of `evals` with rows in `eval_results` becomes one run. Runs saved before results version 4 are skipped, because their rows are in `evals.results`. |
 | Scenario | One per result row. A row is one test for one provider, prompt, and repeat. |
-| Interactions | `response.metadata.messages` for multi-turn strategies. Otherwise one interaction from `redteamFinalPrompt`, `response.prompt`, or `prompt.raw`, with `response.output`. Latency, tokens, cost, and guardrails go into the metadata of the last interaction. |
+| Interactions | `response.metadata.messages` for multi-turn strategies. Otherwise one interaction from `redteamFinalPrompt`, `response.prompt`, or `prompt.raw`, with `response.output`. When `response.output` is an object and the test has `vars`, the interaction is Structured: `inputs` is the `vars`, which fill the request body, and `outputs` is the object. Message fields such as `tool_calls` and `tool_call_id` go into the metadata. A message with only tool calls shows the calls as JSON text. Latency, tokens, cost, and guardrails go into the metadata of the last interaction. |
 | Checks | One per item of `gradingResult.componentResults`, named by the assertion metric or type. A test with a `threshold` gets one overall check, because promptfoo combines the assertions. `failureReason` 2 is an ERROR. The `error` field alone does not mean an error, because promptfoo also fills it for failed assertions. |
 | Tags | `eval-id`, `plugin`, `strategy` (`basic` when absent), `severity`, `harm-category`, `provider`, `metric`, and the config tags. |
 | Annotations | Eval ID, promptfoo version, description, vars, test metadata, success, score, failure reason, red-team history, and response metadata. |
