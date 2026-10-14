@@ -31,6 +31,7 @@ The output file is `SuiteResult.to_hub_format()`. Load it again with `SuiteResul
 - Statuses follow Giskard. PASS means the target resisted or the assertion passed. FAIL means a vulnerability or a failed assertion. ERROR means the tool could not reach a verdict because of an error. SKIP means the tool gave no score.
 - Never let a tool error become a FAIL. A FAIL must always mean that the tool saw the target fail.
 - Tags use `key:value`, so `SuiteResult.group_by(key)` works. Every scenario has `tool:<tool>`.
+- Scenario names are unique in a suite. The `convert` command adds ` (1)`, ` (2)`, and so on to names that repeat, for example the same test in several runs.
 - Keep every source field that can help a reviewer. Put per-turn data in the interaction metadata, and everything else in the annotations. The `compact` helper removes empty values.
 - Pair turns with `pair_turns`. It makes one interaction per user turn and its reply, and it returns the system prompts separately. Put the system prompts in the annotations.
 - `make_scenario` keeps a dict input or output as an object, in the Hub Structured format. It writes all other content in the Hub Chat format. The Hub UI shows chat bubbles only for Chat, and the Hub SDK cannot read plain-string interactions back. Lists and other content that is not text become JSON text, because Chat content is a string. Give a dict only when the tool recorded the object that the target received or returned.

@@ -111,6 +111,7 @@ def promptfoo(tmp: Path) -> None:
     con.close()
     from_db = convert("promptfoo", db)
     assert statuses(from_db) == statuses(scenarios) * 2 and "eval-id:eval-a" in from_db[0]["tags"], statuses(from_db)
+    assert len({s["scenario_name"] for s in from_db}) == len(from_db), "scenario names must be unique"
     assert statuses(convert("promptfoo", db, "--promptfoo-eval-id", "eval-b")) == statuses(scenarios)
 
     # A Structured agent returns an object, and an agent with tools can answer with only tool calls.

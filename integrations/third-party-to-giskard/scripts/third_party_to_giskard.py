@@ -16,7 +16,7 @@ import os
 import re
 import sys
 import traceback
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -965,6 +965,14 @@ def cmd_convert(opts: argparse.Namespace) -> None:
         duration_ms += duration
         inputs.append({"file": str(path), "scenarios": len(converted)})
         print(f"{path}: {len(converted)} scenarios", file=sys.stderr)
+
+    # Make scenario names unique. Runs repeat the same tests, and PyRIT names cut objectives at 80 characters.
+    counts, seen = Counter(s.scenario_name for s in scenarios), Counter()
+    for i, s in enumerate(scenarios):
+        if counts[s.scenario_name] > 1:
+            seen[s.scenario_name] += 1
+            name = s.final_trace.annotations["scenario_name"] = f"{s.scenario_name} ({seen[s.scenario_name]})"
+            scenarios[i] = s.model_copy(update={"scenario_name": name})
 
     result = SuiteResult(results=scenarios, duration_ms=duration_ms)
     output = Path(opts.output or f"giskard_results/{opts.tool}_suite_result.json")
