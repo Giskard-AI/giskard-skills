@@ -19,7 +19,7 @@ Do not create a test suite, run broad audits or extra review passes, refactor un
 
 Identify the target agent first. A project can contain several agents, for example separate entry points, services, graphs, or chains. If the user did not name the target and more than one candidate exists, list the candidates briefly with their locations and ask which one to register. Never pick one yourself. Continue without asking only when the user named the target or the project contains a single candidate.
 
-Locate the target's callable/API, input/output shape, streaming behavior, and conversation state. Infer its name, description, and supported languages. Ask only for missing connection details:
+Locate the target's callable/API, input/output shape, streaming behavior, conversation state, and whether it is already deployed. Infer its name, description, and supported languages. Ask only for missing connection details:
 
 - **Hub URL**.
 - **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
@@ -33,7 +33,7 @@ Use `GISKARD_HUB_BASE_URL` and `GISKARD_HUB_API_KEY` for the SDK. Generate a sep
 
 ## 2. Build the minimal adapter
 
-Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured schemas and multi-turn bindings, following the [Hub contract](https://docs.giskard.ai/hub/ui/setup/agents). For Chat, publish the canonical schemas verbatim; keep stricter runtime validation separate. Reuse existing dependencies where practical.
+Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured schemas and multi-turn bindings, following the [Hub contract](https://docs.giskard.ai/hub/ui/setup/agents). For Chat, publish the canonical schemas verbatim; keep stricter runtime validation separate. Reuse existing dependencies where practical. If a deployed target already has an authenticated HTTPS endpoint that meets this contract, skip the wrapper and register that endpoint.
 
 - Implement a JSON `POST` route, e.g. `/giskard/invoke`, around the actual target, with matching input/output schemas.
 - Require `X-API-Key` or equivalent authentication before invoking the target. Refuse startup with an empty configured key; use constant-time comparison and reject missing/wrong keys with `401` or `403`.
@@ -46,7 +46,9 @@ Start the wrapper and make **one cheap request with an invalid key** to confirm 
 
 **The URL registered with Hub must use `https://` with certificate verification enabled.** TLS can terminate at the tunnel or reverse proxy; `http://127.0.0.1` is only the private loopback hop. It is not the Hub endpoint and does not need a self-signed certificate.
 
-For an easily editable remote target, create and deploy the wrapper on that host using its existing deployment and HTTPS ingress. Otherwise run a separate adapter; a local adapter needs a tunnel.
+Recommend the remote flow when the target is already deployed and the wrapper is easy to deploy there. Deploy the wrapper with the host's existing deployment and HTTPS ingress. Confirm with the user before you deploy. A deployed endpoint has a stable URL and needs no local processes, so it is more reliable for long evaluations and scans.
+
+A tunnel is the alternative. It is the only option when the target runs only locally. For a deployed target, use a tunnel only when the user prefers it or the wrapper is hard to deploy. Then run a local wrapper that calls the deployed target. Tell the user that the tunnel URL is temporary and that a long run fails if the machine sleeps or a process stops.
 
 For a local wrapper, tell the user **before opening the tunnel**:
 
