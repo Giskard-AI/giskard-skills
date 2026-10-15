@@ -92,6 +92,8 @@ def promptfoo(tmp: Path) -> None:
     jsonl = tmp / "results.jsonl"
     jsonl.write_text("\n".join(json.dumps(r) for r in records))
     assert statuses(convert("promptfoo", jsonl)) == statuses(scenarios)
+    jsonl.write_text(json.dumps(records[0]))
+    assert statuses(convert("promptfoo", jsonl)) == ["pass"]
 
     # promptfoo.db: one row of evals per run, results in eval_results. A run without results is skipped.
     db = tmp / "promptfoo.db"

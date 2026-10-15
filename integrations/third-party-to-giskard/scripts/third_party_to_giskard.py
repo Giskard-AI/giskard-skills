@@ -934,10 +934,12 @@ CONVERTERS = {"garak": convert_garak, "promptfoo": convert_promptfoo, "deepteam"
 def load_json(path: Path) -> Any:
     """Parse a JSON file, or a JSONL file into a list. ponytail: loads the whole file in memory."""
     text = path.read_text(encoding="utf-8")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    if path.suffix != ".jsonl":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
 def emit(data: Any) -> None:
