@@ -49,6 +49,36 @@ def register_and_test(config, agent_id=None):
 
 The Hub key authenticates `HubClient`; only the wrapper key goes in the agent's `headers`. Do not print entire agent objects, which contain credentials.
 
+## Without Python: Hub MCP
+
+If the environment has no Python 3.10+, use the Giskard Hub MCP server instead of the SDK. If the coding assistant has no Hub MCP tools yet, add the server to its MCP configuration. `GISKARD_HUB_BASE_URL` includes the scheme, for example `https://hub.example.com`:
+
+```json
+{
+  "mcpServers": {
+    "Giskard Hub": {
+      "url": "${GISKARD_HUB_BASE_URL}/_api/mcp/",
+      "headers": {
+        "X-API-Key": "${GISKARD_HUB_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Adapt the file location, server type field, and environment-variable syntax to the client. Reference the variables. Never write the literal Hub key into a tracked file. Some clients load new servers only after a reload, so ask the user to reload when the tools do not appear.
+
+The tools take the same arguments as the SDK methods:
+
+| SDK | MCP tool |
+| --- | --- |
+| `hub.projects.list()` / `hub.projects.retrieve(project_id)` | `list_projects` / `retrieve_project` |
+| `hub.agents.create` / `hub.agents.update` | `create_agent` / `update_agent` |
+| `hub.agents.test_connection` | `test_agent_connection` |
+| `hub.agents.list(project_id=...)` | `list_agents` |
+
+MCP `headers` is a list of name/value pairs: `[{"name": "X-API-Key", "value": "<wrapper key>"}]`. The wrapper key is a tool argument, so it is visible in the session. Do not repeat it in replies to the user. The rules below apply to MCP results too.
+
 ## Interpret and retry
 
 Inspect `result` before reporting success. SDK versions may return a dictionary or a model; identify the actual success/response and execution-error fields. **The connection-test result is not necessarily the wrapper's raw output:** do not blindly validate its whole envelope against `output_schema` or assume an unfamiliar shape means the endpoint failed. Inspect the installed SDK's contract if needed. An empty or unrecognized result is not proof of success either.
