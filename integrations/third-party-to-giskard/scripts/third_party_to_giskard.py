@@ -18,7 +18,6 @@ import sys
 import traceback
 from collections import Counter, defaultdict
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -930,7 +929,6 @@ def convert_pyrit(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
 CONVERTERS = {"garak": convert_garak, "promptfoo": convert_promptfoo, "deepteam": convert_deepteam, "pyrit": convert_pyrit}
 
 
-@lru_cache(maxsize=None)
 def load_json(path: Path) -> Any:
     """Parse a JSON file, or a JSONL file into a list. ponytail: loads the whole file in memory."""
     text = path.read_text(encoding="utf-8")
