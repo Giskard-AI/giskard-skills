@@ -66,9 +66,9 @@ If the environment has no Python 3.10+, use the Giskard Hub MCP server instead o
 }
 ```
 
-Adapt the file location, server type field, and environment-variable syntax to the client. Reference the variables. Never write the literal Hub key into a tracked file. Some clients load new servers only after a reload, so ask the user to reload when the tools do not appear.
+Adapt the file location, server type field, and environment-variable syntax to the client. Reference the variables, and make sure the client starts with them set. Never write the literal Hub key into a tracked file. Some clients load new servers only after a reload or restart, so ask the user to do this when the tools do not appear. Set up MCP in step 1, before you start the wrapper or a tunnel, because a restart can stop running processes.
 
-The tools take the same arguments as the SDK methods:
+The tools take the same arguments as the SDK methods, except `headers`:
 
 | SDK | MCP tool |
 | --- | --- |

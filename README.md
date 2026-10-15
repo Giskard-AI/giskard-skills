@@ -81,7 +81,7 @@ Depending on the skill, data is shared with:
 
 | Destination | Data and operations |
 | --- | --- |
-| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. |
+| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. Uses the Hub SDK, or the Hub MCP server at `/_api/mcp/` when Python is unavailable. |
 | Your agent's endpoint | Receives test inputs and returns responses during connection tests and evaluations. |
 | Collibra (`COLLIBRA_URL`, HTTPS) | Receives agent/probe metadata, endpoint URLs, scan IDs/dates, and pass/fail metrics to create or update governance assets. |
 | Configured model and embedding providers | Receive descriptions, prompts, agent outputs, judging criteria, and supplied document text for generation and evaluation. |
