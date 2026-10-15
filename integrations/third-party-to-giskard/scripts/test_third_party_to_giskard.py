@@ -94,6 +94,10 @@ def promptfoo(tmp: Path) -> None:
     assert statuses(convert("promptfoo", jsonl)) == statuses(scenarios)
     jsonl.write_text(json.dumps(records[0]))
     assert statuses(convert("promptfoo", jsonl)) == ["pass"]
+    named = tmp / "named.json"
+    named.write_text(json.dumps({"results": {"results": [result(i, True, 0, [], description=d) for i, d in enumerate(["test", "test", "test (1)"])]}}))
+    names = [s["scenario_name"] for s in convert("promptfoo", named)]
+    assert names == ["test (2)", "test (3)", "test (1)"], names
 
     # promptfoo.db: one row of evals per run, results in eval_results. A run without results is skipped.
     db = tmp / "promptfoo.db"

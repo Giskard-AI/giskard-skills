@@ -969,11 +969,16 @@ def cmd_convert(opts: argparse.Namespace) -> None:
         print(f"{path}: {len(converted)} scenarios", file=sys.stderr)
 
     # Make scenario names unique. Runs repeat the same tests, and PyRIT names cut objectives at 80 characters.
+    taken = {s.scenario_name for s in scenarios}
     counts, seen = Counter(s.scenario_name for s in scenarios), Counter()
     for i, s in enumerate(scenarios):
         if counts[s.scenario_name] > 1:
-            seen[s.scenario_name] += 1
-            name = s.final_trace.annotations["scenario_name"] = f"{s.scenario_name} ({seen[s.scenario_name]})"
+            name = s.scenario_name
+            while name in taken:
+                seen[s.scenario_name] += 1
+                name = f"{s.scenario_name} ({seen[s.scenario_name]})"
+            taken.add(name)
+            s.final_trace.annotations["scenario_name"] = name
             scenarios[i] = s.model_copy(update={"scenario_name": name})
 
     result = SuiteResult(results=scenarios, duration_ms=duration_ms)
