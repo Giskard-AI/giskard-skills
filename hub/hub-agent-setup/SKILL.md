@@ -17,6 +17,8 @@ Do not create a test suite, run broad audits or extra review passes, refactor un
 
 ## 1. Gather the essentials
 
+Identify the target agent first. A project can contain several agents, for example separate entry points, services, graphs, or chains. If the user did not name the target and more than one candidate exists, list the candidates briefly with their locations and ask which one to register. Never pick one yourself. Continue without asking only when the user named the target or the project contains a single candidate.
+
 Locate the target's callable/API, input/output shape, streaming behavior, and conversation state. Infer its name, description, and supported languages. Ask only for missing connection details:
 
 - **Hub URL**.
