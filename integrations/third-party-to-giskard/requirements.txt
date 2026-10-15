@@ -1,2 +1,2 @@
 giskard-checks>=1.0.2,<2
-giskard-hub>=3.2.0,4
+giskard-hub>=3.2.0,<4
