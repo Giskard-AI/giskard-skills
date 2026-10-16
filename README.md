@@ -13,6 +13,7 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
 | `rag-evaluator` | Python 3.12+; `pip install "giskard[openai,scan]"`, substituting your provider extra as needed. | The target RAG agent, any documents or retriever used in the evaluation, and the configured generation, judge, and embedding providers. |
 | `hub-agent-setup` | Python 3.10+; `giskard-hub`, or the Giskard Hub MCP server when Python is unavailable. Plus dependencies needed to wrap your agent. For a local agent, `cloudflared` or an already configured `ngrok` installation. | A Giskard Hub project and an agent that can be exposed through an authenticated HTTPS endpoint. |
 | `giskard-to-collibra` | Python 3.10+; `pip install -r integrations/giskard-to-collibra/requirements.txt` (`giskard-hub>=3.1.1` and `requests`). | Giskard Hub scan access and a Collibra instance with AI Governance and permission to import assets and write metrics to the chosen domain. |
+| `third-party-to-giskard` | Python 3.12+. Run `pip install -r integrations/third-party-to-giskard/requirements.txt` (`giskard-checks>=1.0.2` and `giskard-hub>=3.2.0`). The third-party tools are not required. | Result files from garak, promptfoo, DeepTeam, or PyRIT. Optional Giskard Hub access with permission to create evaluations in the chosen project. |
 
 Run dependency installation from the repository root in a Python virtual environment. The bare `giskard-checks` package does not include a model provider SDK.
 
@@ -49,6 +50,11 @@ For LiteLLM, install `giskard[litellm]` (or `giskard[litellm,scan]` for scans) a
       <td><code>npx skills add Giskard-AI/giskard-skills --skill giskard-to-collibra</code></td>
       <td>Use when a user wants to export, push, or sync Giskard Hub scan results into Collibra AI Governance. Creates or updates the AI Agent asset hierarchy in Collibra (re-runs are idempotent) and pushes per-probe pass/fail metrics to the Quality tab. Triggers on phrases like "export my scan to Collibra", "push results to Collibra", or "send the latest scan of this project to Collibra". Requires a Collibra instance with AI Governance.</td>
     </tr>
+    <tr>
+      <td>third-party-to-giskard</td>
+      <td><code>npx skills add Giskard-AI/giskard-skills --skill third-party-to-giskard</code></td>
+      <td>Use when a user has red-teaming or evaluation results from garak, promptfoo, DeepTeam, or PyRIT and wants them in Giskard. Converts the existing result files (it never runs the tools) into one Giskard OSS <code>SuiteResult</code> per tool, keeping prompts, responses, conversations, verdicts, scores, reasons, and categories. Optionally uploads each suite to Giskard Hub as an evaluation. Triggers on phrases like "import my garak report", "convert promptfoo results to Giskard", or "upload my PyRIT results to the Hub".</td>
+    </tr>
   </tbody>
 </table>
 
@@ -81,13 +87,13 @@ Depending on the skill, data is shared with:
 
 | Destination | Data and operations |
 | --- | --- |
-| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. Uses the Hub SDK, or the Hub MCP server at `/_api/mcp/` when Python is unavailable. |
+| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. Uses the Hub SDK, or the Hub MCP server at `/_api/mcp/` when Python is unavailable. Receives converted third-party results (prompts, responses, verdicts, and metadata) as uploaded evaluations. |
 | Your agent's endpoint | Receives test inputs and returns responses during connection tests and evaluations. |
 | Collibra (`COLLIBRA_URL`, HTTPS) | Receives agent/probe metadata, endpoint URLs, scan IDs/dates, and pass/fail metrics to create or update governance assets. |
 | Configured model and embedding providers | Receive descriptions, prompts, agent outputs, judging criteria, and supplied document text for generation and evaluation. |
 | Cloudflare Tunnel or ngrok (optional) | Carries Hub requests and agent responses through a public HTTPS URL protected by the wrapper's API key. |
 
-Installation uses GitHub, package registries, and optional tunnel CLI downloads. Collibra exports also save metadata locally in `import_agents.json`; evaluations may save reports. Your coding agent and target agent retain their own service connections and data-handling settings.
+Installation uses GitHub, package registries, and optional tunnel CLI downloads. Collibra exports also save metadata locally in `import_agents.json`; evaluations may save reports. Third-party conversions read result files locally and save one `SuiteResult` JSON file per tool. They contact the Hub only when you choose to upload. `giskard-checks` sends anonymous usage telemetry (such as scenario and status counts) to PostHog when it writes a suite, and the `giskard-hub` SDK sends usage events (such as client initialization and errors, with an ID derived from the API key) when the skill lists projects or agents or uploads; set `GISKARD_TELEMETRY_DISABLED=1` to turn both off. Your coding agent and target agent retain their own service connections and data-handling settings.
 
 ## Usage costs
 
