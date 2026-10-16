@@ -239,6 +239,9 @@ def _garak_interactions(attempt: dict, conversation: Any, output: Any) -> tuple[
     return [(_garak_text(prompt), _garak_text(output), compact({"output": _garak_meta(output)}))], []
 
 
+TEXT_ENCODING = "utf-8-sig"  # reads UTF-8 and tolerates a byte order mark, which PowerShell adds when it saves a file
+
+
 def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
     threshold = opts.garak_threshold
     setup: dict = {}
@@ -248,7 +251,7 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
     probes_meta: dict = {}
     detectors_meta: dict = {}
     attempts: dict[str, dict] = {}
-    with path.open(encoding="utf-8") as handle:
+    with path.open(encoding=TEXT_ENCODING) as handle:
         for line in handle:
             if not line.strip():
                 continue
@@ -478,23 +481,20 @@ def _promptfoo_db(path: Path, opts: argparse.Namespace) -> Any:
                 f"{path}: skipped {len(legacy)} run(s) saved before promptfoo results version 4 ({', '.join(map(str, legacy))}). "
                 "Export them with `promptfoo export eval <id> -o results.json` and convert the JSON."
             )
-        sql = f"SELECT * FROM evals WHERE {has_rows} {where} ORDER BY created_at"
-        for ev in sql_rows(con, sql, ids, _PROMPTFOO_JSON_COLUMNS, _camel):
-            sql = "SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx"
-            results = sql_rows(con, sql, (ev["id"],), _PROMPTFOO_JSON_COLUMNS, _camel)
+        runs_sql = f"SELECT * FROM evals WHERE {has_rows} {where} ORDER BY created_at"
+        rows_sql = "SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx"
+        for ev in sql_rows(con, runs_sql, ids, _PROMPTFOO_JSON_COLUMNS, _camel):
+            results = sql_rows(con, rows_sql, (ev["id"],), _PROMPTFOO_JSON_COLUMNS, _camel)
             yield {"evalId": ev["id"], "config": ev["config"], "results": {"stats": ev["results"], "results": results}}
 
 
 def convert_promptfoo(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
     scenarios: list = []
     duration_ms = 0
-    if is_sqlite(file_header(path)):
-        runs = _promptfoo_db(path, opts)
-    else:
-        if opts.promptfoo_eval_id:
-            opts.warnings.append(f"{path}: --promptfoo-eval-id applies only to a promptfoo.db, so it was ignored for this file.")
-        runs = [load_json(path)]
-    for raw in runs:
+    sqlite = is_sqlite(file_header(path))
+    if opts.promptfoo_eval_id and not sqlite:
+        opts.warnings.append(f"{path}: --promptfoo-eval-id applies only to a promptfoo.db, so it was ignored for this file.")
+    for raw in _promptfoo_db(path, opts) if sqlite else [load_json(path)]:
         converted, duration = _promptfoo_run(raw, path)
         scenarios += converted
         duration_ms += duration
@@ -1051,7 +1051,7 @@ CONVERTERS = {"garak": convert_garak, "promptfoo": convert_promptfoo, "deepteam"
 
 def load_json(path: Path) -> Any:
     """Parse a JSON file, or a JSONL file into a list. It loads the whole file in memory."""
-    text = path.read_text(encoding="utf-8-sig")  # -sig: tolerate a byte order mark
+    text = path.read_text(encoding=TEXT_ENCODING)
     if path.suffix != ".jsonl":
         try:
             return json.loads(text)
@@ -1167,12 +1167,22 @@ def split_payload(payload: dict, max_bytes: int) -> list[dict]:
 
 
 def _suite_counts(scenarios: list[dict]) -> dict:
-    """Recount the SuiteResult summary fields for a part, so each part does not report the whole suite."""
+    """Recount the SuiteResult summary fields for a part, following SuiteResult's computed fields.
+
+    It counts the serialized statuses instead of rebuilding a SuiteResult, which would parse every scenario again.
+    """
+    from giskard.checks import ScenarioStatus
+
     statuses = Counter(s.get("status") for s in scenarios)
-    counts = {f"{key}_count": statuses[status] for key, status in
-              (("passed", "pass"), ("failed", "fail"), ("errored", "error"), ("skipped", "skip"))}
-    evaluated = len(scenarios) - counts["skipped_count"]
-    return {**counts, "pass_rate": counts["passed_count"] / evaluated if evaluated else None}
+    passed, skipped = statuses[ScenarioStatus.PASS.value], statuses[ScenarioStatus.SKIP.value]
+    evaluated = len(scenarios) - skipped
+    return {
+        "passed_count": passed,
+        "failed_count": statuses[ScenarioStatus.FAIL.value],
+        "errored_count": statuses[ScenarioStatus.ERROR.value],
+        "skipped_count": skipped,
+        "pass_rate": passed / evaluated if evaluated else None,
+    }
 
 
 def cmd_upload(opts: argparse.Namespace) -> None:
@@ -1180,7 +1190,7 @@ def cmd_upload(opts: argparse.Namespace) -> None:
         raise ValueError("--name works with a single file only. Upload the files one at a time to name each evaluation.")
     payloads = []
     for raw in opts.files:
-        payload = json.loads(Path(raw).read_text(encoding="utf-8"))
+        payload = json.loads(Path(raw).read_text(encoding=TEXT_ENCODING))
         if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
             raise ValueError(f"{raw} is not a SuiteResult JSON file written by the convert command.")
         payloads.append((raw, payload))
