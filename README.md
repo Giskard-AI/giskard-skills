@@ -11,7 +11,7 @@ Agent skills to streamline adoption and usage of Giskard products — compatible
 | --- | --- | --- |
 | `scenario-generator` | Python 3.12+; `pip install "giskard[openai]"`, or the `anthropic`, `google`, `azure`, or `litellm` extra. Add the `scan` extra for automatic vulnerability scans. | The target agent and the configured model provider for generation, simulation, and LLM judges. |
 | `rag-evaluator` | Python 3.12+; `pip install "giskard[openai,scan]"`, substituting your provider extra as needed. | The target RAG agent, any documents or retriever used in the evaluation, and the configured generation, judge, and embedding providers. |
-| `hub-agent-setup` | Python 3.10+; `giskard-hub`, plus dependencies needed to wrap your agent. For a local agent, `cloudflared` or an already configured `ngrok` installation. | A Giskard Hub project and an agent that can be exposed through an authenticated HTTPS endpoint. |
+| `hub-agent-setup` | Python 3.10+; `giskard-hub`, or the Giskard Hub MCP server when Python is unavailable. Plus dependencies needed to wrap your agent. For a local agent, `cloudflared` or an already configured `ngrok` installation. | A Giskard Hub project and an agent that can be exposed through an authenticated HTTPS endpoint. |
 | `giskard-to-collibra` | Python 3.10+; `pip install -r integrations/giskard-to-collibra/requirements.txt` (`giskard-hub>=3.1.1` and `requests`). | Giskard Hub scan access and a Collibra instance with AI Governance and permission to import assets and write metrics to the chosen domain. |
 | `third-party-to-giskard` | Python 3.12+. Run `pip install -r integrations/third-party-to-giskard/requirements.txt` (`giskard-checks>=1.0.2` and `giskard-hub>=3.2.0`). The third-party tools are not required. | Result files from garak, promptfoo, DeepTeam, or PyRIT. Optional Giskard Hub access with permission to create evaluations in the chosen project. |
 
@@ -33,7 +33,7 @@ For LiteLLM, install `giskard[litellm]` (or `giskard[litellm,scan]` for scans) a
     <tr>
       <td>hub-agent-setup</td>
       <td><code>npx skills add Giskard-AI/giskard-skills --skill hub-agent-setup</code></td>
-      <td>Use when a user wants to connect a local or remote agent to Giskard Hub. Creates an authenticated HTTPS endpoint with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and uses the Hub SDK connection test to guide any fixes.</td>
+      <td>Use when a user wants to connect a local or remote agent to Giskard Hub. Creates an authenticated HTTPS endpoint with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and uses the Hub connection test (SDK or MCP) to guide any fixes.</td>
     </tr>
     <tr>
       <td>scenario-generator</td>
@@ -74,7 +74,7 @@ Configure credentials only for the skills and providers you use. Keep secrets in
 
 | Integration | Configuration |
 | --- | --- |
-| Giskard Hub | `GISKARD_HUB_BASE_URL` for your Hub instance and `GISKARD_HUB_API_KEY` for SDK access. Hub setup also needs a project name or ID. |
+| Giskard Hub | `GISKARD_HUB_BASE_URL` for your Hub instance and `GISKARD_HUB_API_KEY` for SDK or MCP access. Hub setup also needs a project name or ID. |
 | Agent wrapper | `AGENT_WRAPPER_API_KEY`, generated separately from the Hub key. Hub receives this key as the registered agent's authentication header so it can call the wrapper. The Hub API key is never sent to the wrapper. |
 | Collibra | `COLLIBRA_URL`, `COLLIBRA_USER`, `COLLIBRA_PASSWORD`, and `COLLIBRA_DOMAIN_ID`, in addition to the Hub configuration. See [env.example](integrations/giskard-to-collibra/env.example). The export script loads `.env` from the working directory and its script directory; existing environment variables take precedence. |
 | Model providers | The configured provider's credentials, such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY`. The `azure_ai/...` model prefix uses `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT`; `azure/...` uses `AZURE_API_KEY` and `AZURE_API_BASE`. |
@@ -87,7 +87,7 @@ Depending on the skill, data is shared with:
 
 | Destination | Data and operations |
 | --- | --- |
-| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. Receives converted third-party results (prompts, responses, verdicts, and metadata) as uploaded evaluations. |
+| Giskard Hub (`GISKARD_HUB_BASE_URL`) | Registers agent metadata, schemas, endpoint, and wrapper credentials; reads projects and scan results. Uses the Hub SDK, or the Hub MCP server at `/_api/mcp/` when Python is unavailable. Receives converted third-party results (prompts, responses, verdicts, and metadata) as uploaded evaluations. |
 | Your agent's endpoint | Receives test inputs and returns responses during connection tests and evaluations. |
 | Collibra (`COLLIBRA_URL`, HTTPS) | Receives agent/probe metadata, endpoint URLs, scan IDs/dates, and pass/fail metrics to create or update governance assets. |
 | Configured model and embedding providers | Receive descriptions, prompts, agent outputs, judging criteria, and supplied document text for generation and evaluation. |
