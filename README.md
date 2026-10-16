@@ -93,7 +93,7 @@ Depending on the skill, data is shared with:
 | Configured model and embedding providers | Receive descriptions, prompts, agent outputs, judging criteria, and supplied document text for generation and evaluation. |
 | Cloudflare Tunnel or ngrok (optional) | Carries Hub requests and agent responses through a public HTTPS URL protected by the wrapper's API key. |
 
-Installation uses GitHub, package registries, and optional tunnel CLI downloads. Collibra exports also save metadata locally in `import_agents.json`; evaluations may save reports. Third-party conversions read result files locally and save one `SuiteResult` JSON file per tool. They contact the Hub only when you choose to upload. Your coding agent and target agent retain their own service connections and data-handling settings.
+Installation uses GitHub, package registries, and optional tunnel CLI downloads. Collibra exports also save metadata locally in `import_agents.json`; evaluations may save reports. Third-party conversions read result files locally and save one `SuiteResult` JSON file per tool. They contact the Hub only when you choose to upload. `giskard-checks` sends anonymous usage telemetry (such as scenario and status counts) to PostHog when it writes a suite; set `GISKARD_TELEMETRY_DISABLED=1` to turn it off. Your coding agent and target agent retain their own service connections and data-handling settings.
 
 ## Usage costs
 

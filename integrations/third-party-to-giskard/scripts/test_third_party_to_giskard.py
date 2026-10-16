@@ -83,11 +83,13 @@ def promptfoo(tmp: Path) -> None:
                response={"output": "bad", "metadata": {"messages": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"},
                                                                       {"role": "user", "content": "now"}, {"role": "assistant", "content": "bad"}]}}),
         result(4, True, 0, [component(True, "A"), component(False, "B")], testCase={"threshold": 0.5}),
+        # A failed assertion of weight 0 does not fail the test, so the overall verdict wins.
+        result(5, True, 0, [component(True, "A"), {**component(False, "Info"), "assertion": {"type": "icontains", "metric": "Info", "weight": 0}}]),
     ]
     path = tmp / "results.json"
     path.write_text(json.dumps({"evalId": "eval-1", "results": {"version": 3, "results": records, "stats": {"durationMs": 9}}}))
     scenarios = convert("promptfoo", path)
-    assert statuses(scenarios) == ["pass", "fail", "error", "fail", "pass"], statuses(scenarios)
+    assert statuses(scenarios) == ["pass", "fail", "error", "fail", "pass", "pass"], statuses(scenarios)
     assert len(scenarios[3]["final_trace"]["interactions"]) == 2 and "plugin:harmful:hate" in scenarios[3]["tags"]
     jsonl = tmp / "results.jsonl"
     jsonl.write_text("\n".join(json.dumps(r) for r in records))
@@ -181,6 +183,8 @@ def pyrit(tmp: Path) -> None:
     assert statuses(scenarios) == ["fail", "pass"], statuses(scenarios)
     assert len(scenarios[0]["final_trace"]["interactions"]) == 2 and "attack:RedTeamingAttack" in scenarios[0]["tags"]
     assert statuses(convert("pyrit", db, "--pyrit-label", "op=y")) == ["pass"]
+    # Timestamps compare as times, whatever the separator.
+    assert statuses(convert("pyrit", db, "--pyrit-since", "2026-01-01T00:00")) == ["fail", "pass"]
 
     # export_conversations JSON (PyRIT 0.14 and older): scores inline, no attack outcome.
     export = tmp / "export_conversations.json"

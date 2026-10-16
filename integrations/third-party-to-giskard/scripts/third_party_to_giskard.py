@@ -17,7 +17,8 @@ import re
 import sys
 import traceback
 from collections import Counter, defaultdict
-from datetime import datetime
+from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,34 @@ def ms_between(start: Any, end: Any) -> int:
     except ValueError:
         return 0
     return max(int(delta.total_seconds() * 1000), 0)
+
+
+def system_prompt(system: list[Any]) -> Any:
+    """Return the only system prompt, or the list when there are several."""
+    return system[0] if len(system) == 1 else system
+
+
+def is_sqlite(path: Path) -> bool:
+    with path.open("rb") as handle:
+        return handle.read(16) == b"SQLite format 3\x00"
+
+
+def connect_ro(path: Path) -> Any:
+    """Open a SQLite database read-only, with rows as sqlite3.Row. Close it with contextlib.closing."""
+    import sqlite3
+
+    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def parse_time(value: Any) -> datetime | None:
+    """Parse an ISO timestamp ('T' or space separator). Aware times become naive UTC."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
 
 
 def pair_turns(turns: list[tuple[Any, Any, dict]]) -> tuple[list[tuple], list[Any]]:
@@ -277,7 +306,7 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
                 "targets": attempt.get("targets"),
                 "triggers": notes.get("triggers"),
                 "attempt_notes": {k: v for k, v in notes.items() if k != "triggers"},
-                "system_prompt": system[0] if len(system) == 1 else system,
+                "system_prompt": system_prompt(system),
                 "reverse_translation_output": _garak_text(reverse[gen]) if gen < len(reverse) else None,
             }
             scenarios.append(make_scenario("garak", name, interactions, checks, tags, annotations))
@@ -319,9 +348,10 @@ def _promptfoo_checks(record: dict, test_meta: dict) -> list:
         return [make_check("error", "promptfoo", record.get("error") or "Provider or grading error.", {"failure_reason": "ERROR"})]
     components = grading.get("componentResults") or []
     threshold = (record.get("testCase") or {}).get("threshold")
-    if components and threshold is None:
+    agrees = all(c.get("pass") for c in components) == bool(record.get("success"))
+    if components and threshold is None and agrees:
         return [_promptfoo_component(c, test_meta) for c in components]
-    # A test threshold aggregates the assertions, so keep promptfoo's overall verdict.
+    # A test threshold or weighted assertions aggregate the components, so keep promptfoo's overall verdict.
     details = {
         "score": record.get("score"),
         "test_threshold": threshold,
@@ -366,12 +396,12 @@ def _promptfoo_db(path: Path, opts: argparse.Namespace) -> list[dict]:
 
     ponytail: runs saved before results version 4 keep their rows in evals.results and are skipped.
     """
-    import sqlite3
-
     json_columns = {"config", "results", "test_case", "prompt", "provider", "response", "grading_result", "named_scores", "metadata"}
-    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
+    with closing(connect_ro(path)) as con:
+        return _promptfoo_db_runs(con, json_columns, opts)
 
+
+def _promptfoo_db_runs(con: Any, json_columns: set, opts: argparse.Namespace) -> list[dict]:
     def rows(sql: str, *params: Any) -> list[dict]:
         # snake_case columns become the camelCase keys of the export: test_case -> testCase.
         return [
@@ -381,18 +411,18 @@ def _promptfoo_db(path: Path, opts: argparse.Namespace) -> list[dict]:
 
     runs = []
     for ev in rows("SELECT * FROM evals ORDER BY created_at"):
+        if opts.promptfoo_eval_id and ev["id"] not in opts.promptfoo_eval_id:
+            continue
         results = rows("SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx", ev["id"])
-        if results and (not opts.promptfoo_eval_id or ev["id"] in opts.promptfoo_eval_id):
+        if results:
             runs.append({"evalId": ev["id"], "config": ev["config"], "results": {"stats": ev["results"], "results": results}})
     return runs
 
 
 def convert_promptfoo(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
-    with path.open("rb") as handle:
-        is_db = handle.read(16) == b"SQLite format 3\x00"
     scenarios: list = []
     duration_ms = 0
-    for raw in _promptfoo_db(path, opts) if is_db else [load_json(path)]:
+    for raw in _promptfoo_db(path, opts) if is_sqlite(path) else [load_json(path)]:
         converted, duration = _promptfoo_run(raw, path)
         scenarios += converted
         duration_ms += duration
@@ -497,7 +527,7 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
             "failure_reason": _PROMPTFOO_FAILURE_REASONS.get(record.get("failureReason")),
             "named_scores": record.get("namedScores"),
             "grader_comment": (record.get("gradingResult") or {}).get("comment"),
-            "system_prompt": system[0] if len(system) == 1 else system,
+            "system_prompt": system_prompt(system),
             "redteam_history": response_meta.get("redteamHistory"),
             "redteam_tree_history": response_meta.get("redteamTreeHistory"),
             "response_metadata": {k: v for k, v in response_meta.items() if k not in _PROMPTFOO_BULKY_KEYS},
@@ -516,7 +546,7 @@ def convert_deepteam(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
     data = load_json(path)
     overview = data.get("overview") or {}
     scenarios = []
-    for index, case in enumerate(data.get("test_cases") or [], start=1):
+    for index, case in enumerate(data.get("test_cases") or data.get("testCases") or [], start=1):
 
         def field(*keys: str) -> Any:  # deepteam mixes snake_case and camelCase across versions
             return next((case[k] for k in keys if case.get(k) is not None), None)
@@ -566,13 +596,13 @@ def convert_deepteam(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
             "source_file": path.name,
             "test_case_index": index,
             "reason": case.get("reason"),
-            "system_prompt": system[0] if len(system) == 1 else system,
-            "run_cvss_score": overview.get("cvss_score"),
+            "system_prompt": system_prompt(system),
+            "run_cvss_score": overview.get("cvss_score", overview.get("cvssScore")),
             **extra,
         }
         scenarios.append(make_scenario("deepteam", name, interactions, [check], tags, annotations))
 
-    return scenarios, int((number(overview.get("run_duration")) or 0) * 1000)
+    return scenarios, int((number(overview.get("run_duration", overview.get("runDuration"))) or 0) * 1000)
 
 
 # ---------------------------------------------------------------- PyRIT
@@ -662,13 +692,19 @@ def _pyrit_interactions(pieces: list[dict], scores_by_piece: dict) -> tuple[list
     return pair_turns(turns)
 
 
+def _pyrit_after_since(timestamp: Any, since: str) -> bool:
+    start, at = parse_time(since), parse_time(timestamp)
+    if start is None or at is None:  # unparsable: fall back to comparing text
+        return str(timestamp or "") >= since
+    return at >= start
+
+
 def _pyrit_keep(result: dict, labels: dict, scenario_id: Any, opts: argparse.Namespace) -> bool:
-    wanted = dict(item.split("=", 1) for item in opts.pyrit_label or [])
     return (
-        all(str(labels.get(k)) == v for k, v in wanted.items())
+        all(str(labels.get(k)) == v for k, v in opts.pyrit_labels.items())
         and (not opts.pyrit_scenario_id or scenario_id in opts.pyrit_scenario_id)
         and (not opts.pyrit_conversation_id or result.get("conversation_id") in opts.pyrit_conversation_id)
-        and (not opts.pyrit_since or str(result.get("timestamp") or "") >= opts.pyrit_since)
+        and (not opts.pyrit_since or _pyrit_after_since(result.get("timestamp"), opts.pyrit_since))
     )
 
 
@@ -723,7 +759,7 @@ def _pyrit_attack_scenario(result: dict, pieces: list[dict], scores_by_piece: di
         "pyrit_version": result.get("pyrit_version") or attack_node.get("pyrit_version"),
         "attack_metadata": result.get("attack_metadata") or result.get("metadata"),
         "total_retries": result.get("total_retries"),
-        "system_prompt": system[0] if len(system) == 1 else system,
+        "system_prompt": system_prompt(system),
         "related_conversations": result.get("related_conversations"),
         "pruned_conversation_ids": result.get("pruned_conversation_ids"),
         **{k: v for k, v in context.items() if k != "target"},
@@ -760,6 +796,7 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
         interactions, system = _pyrit_interactions(pieces, scores_by_piece)
         attack = _pyrit_class(first.get("attack_identifier") or first.get("orchestrator_identifier"))
         harm = first.get("targeted_harm_categories") or []
+        harm = harm if isinstance(harm, list) else [harm]
         tags = [f"attack:{attack}" if attack else None, *(f"harm-category:{h}" for h in harm), *(f"{k}:{v}" for k, v in labels.items())]
         annotations = {
             "source_file": path.name,
@@ -771,7 +808,7 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
             "targeted_harm_categories": harm,
             "timestamp": first.get("timestamp"),
             "pyrit_version": first.get("pyrit_version"),
-            "system_prompt": system[0] if len(system) == 1 else system,
+            "system_prompt": system_prompt(system),
             "verdict_source": "scores (no attack outcome in this input)",
         }
         name = f"{attack or 'conversation'} · {conversation_id}"
@@ -794,11 +831,12 @@ def _pyrit_rows(con: Any, sql: str, params: Any = ()) -> list[dict]:
 
 
 def _pyrit_db(path: Path, opts: argparse.Namespace) -> list:
-    import sqlite3
-
     # Read-only: opening an old DB with a newer PyRIT would migrate it in place.
-    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
+    with closing(connect_ro(path)) as con:
+        return _pyrit_db_scenarios(con, path, opts)
+
+
+def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "PromptMemoryEntries" not in tables:
         raise ValueError(f"{path} is a SQLite file but not a PyRIT memory database.")
@@ -948,6 +986,7 @@ def emit(data: Any) -> None:
 def cmd_convert(opts: argparse.Namespace) -> None:
     from giskard.checks import SuiteResult
 
+    opts.pyrit_labels = dict(item.split("=", 1) for item in opts.pyrit_label or [])
     scenarios: list = []
     duration_ms = 0
     inputs = []
