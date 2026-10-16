@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-TOOLS = ("garak", "promptfoo", "deepteam", "pyrit")
 USER_ROLES = {"user", "human"}
 SYSTEM_ROLES = {"system", "developer"}
 
@@ -48,11 +47,10 @@ def number(value: Any) -> float | None:
 
 
 def ms_between(start: Any, end: Any) -> int:
-    try:
-        delta = datetime.fromisoformat(str(end)) - datetime.fromisoformat(str(start))
-    except ValueError:
+    start, end = parse_time(start), parse_time(end)
+    if start is None or end is None:
         return 0
-    return max(int(delta.total_seconds() * 1000), 0)
+    return max(int((end - start).total_seconds() * 1000), 0)
 
 
 def system_prompt(system: list[Any]) -> Any:
@@ -60,9 +58,13 @@ def system_prompt(system: list[Any]) -> Any:
     return system[0] if len(system) == 1 else system
 
 
-def is_sqlite(path: Path) -> bool:
+def file_header(path: Path) -> bytes:
     with path.open("rb") as handle:
-        return handle.read(16) == b"SQLite format 3\x00"
+        return handle.read(16)
+
+
+def is_sqlite(header: bytes) -> bool:
+    return header == b"SQLite format 3\x00"
 
 
 def connect_ro(path: Path) -> Any:
@@ -72,6 +74,24 @@ def connect_ro(path: Path) -> Any:
     con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     return con
+
+
+def sql_rows(con: Any, sql: str, params: Any = (), json_columns: Any = (), key: Any = str) -> list[dict]:
+    """Run a query and return dicts keyed by key(column), with the JSON text columns decoded."""
+    cursor = con.execute(sql, params)
+    columns = [(key(c[0]), c[0] in json_columns) for c in cursor.description]
+    rows = []
+    for row in cursor:
+        item = {}
+        for (name, is_json), value in zip(columns, row):
+            if is_json and isinstance(value, str):
+                try:
+                    value = json.loads(value)  # SQLAlchemy stores JSON null as the text 'null'
+                except json.JSONDecodeError:
+                    pass
+            item[name] = value
+        rows.append(item)
+    return rows
 
 
 def parse_time(value: Any) -> datetime | None:
@@ -142,13 +162,13 @@ def hub_interaction(inputs: Any, outputs: Any, metadata: dict | None) -> Any:
     return Interaction(inputs=inputs, outputs=outputs, metadata=metadata or {})
 
 
-def make_scenario(tool: str, name: str, interactions: list[tuple], checks: list, tags: list[Any], annotations: dict, duration_ms: int = 0):
+def make_scenario(
+    tool: str, path: Path, name: str, interactions: list[tuple], system: list[Any], checks: list, tags: list[Any], annotations: dict, duration_ms: int = 0
+):
     from giskard.checks import ScenarioResult, TestCaseResult, Trace
 
-    trace = Trace(
-        interactions=[hub_interaction(i, o, m) for i, o, m in interactions],
-        annotations=compact({"source_tool": tool, "scenario_name": name, **annotations}),
-    )
+    annotations = {"source_tool": tool, "scenario_name": name, "source_file": path.name, "system_prompt": system_prompt(system), **annotations}
+    trace = Trace(interactions=[hub_interaction(i, o, m) for i, o, m in interactions], annotations=compact(annotations))
     step = TestCaseResult(
         results=checks,
         duration_ms=duration_ms,
@@ -177,15 +197,18 @@ def _garak_meta(message: Any) -> dict:
     return compact({k: message.get(k) for k in ("lang", "data_path", "data_type", "data_checksum", "notes")})
 
 
+def _garak_turn(turn: dict) -> tuple:
+    return turn.get("role"), _garak_text(turn.get("content")), _garak_meta(turn.get("content"))
+
+
 def _garak_interactions(attempt: dict, conversation: Any, output: Any) -> tuple[list[tuple], list[Any]]:
     turns = conversation.get("turns") if isinstance(conversation, dict) else conversation
     if isinstance(turns, list) and turns:  # 0.13+ Conversation, or 0.9.0.16-0.12 messages
-        return pair_turns([(t.get("role"), _garak_text(t.get("content")), _garak_meta(t.get("content"))) for t in turns])
+        return pair_turns([_garak_turn(t) for t in turns])
     prompt = attempt.get("prompt")  # <= 0.9.0.9 plain strings, or a missing conversation
     prompt_turns = prompt.get("turns") if isinstance(prompt, dict) else None
     if prompt_turns:
-        turns = [(t.get("role"), _garak_text(t.get("content")), _garak_meta(t.get("content"))) for t in prompt_turns]
-        return pair_turns(turns + [("assistant", _garak_text(output), _garak_meta(output))])
+        return pair_turns([_garak_turn(t) for t in prompt_turns] + [("assistant", _garak_text(output), _garak_meta(output))])
     return [(_garak_text(prompt), _garak_text(output), compact({"output": _garak_meta(output)}))], []
 
 
@@ -280,19 +303,17 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
                 value = number(score)
                 if value is None:
                     checks.append(make_check("skip", detector, "Detector returned no score.", details))
-                elif value >= threshold:  # garak passes only when score < threshold
-                    message = f"{meta.get('hit_desc') or 'Detector hit'} (score {value:g}, threshold {threshold:g})"
-                    checks.append(make_check("fail", detector, message, details, {detector: value}))
-                else:
-                    message = f"{meta.get('pass_desc') or 'Detector passed'} (score {value:g}, threshold {threshold:g})"
-                    checks.append(make_check("pass", detector, message, details, {detector: value}))
+                else:  # garak passes only when score < threshold
+                    hit = value >= threshold
+                    text = (meta.get("hit_desc") or "Detector hit") if hit else (meta.get("pass_desc") or "Detector passed")
+                    message = f"{text} (score {value:g}, threshold {threshold:g})"
+                    checks.append(make_check("fail" if hit else "pass", detector, message, details, {detector: value}))
             if not checks:
                 checks.append(make_check("skip", "garak", f"Attempt has no detector results (status {attempt.get('status')}).", {"attempt_status": attempt.get("status")}))
 
             name = f"{probe} #{seq + 1 if isinstance(seq, int) else index}" + (f" · generation {gen + 1}" if generations > 1 else "")
             annotations = {
                 **run,
-                "source_file": path.name,
                 "garak_attempt_uuid": attempt.get("uuid"),
                 "garak_seq": seq,
                 "generation": gen + 1 if generations > 1 else None,
@@ -306,10 +327,9 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
                 "targets": attempt.get("targets"),
                 "triggers": notes.get("triggers"),
                 "attempt_notes": {k: v for k, v in notes.items() if k != "triggers"},
-                "system_prompt": system_prompt(system),
                 "reverse_translation_output": _garak_text(reverse[gen]) if gen < len(reverse) else None,
             }
-            scenarios.append(make_scenario("garak", name, interactions, checks, tags, annotations))
+            scenarios.append(make_scenario("garak", path, name, interactions, system, checks, tags, annotations))
 
     return scenarios, ms_between(init.get("start_time"), completion.get("end_time"))
 
@@ -391,38 +411,33 @@ def _promptfoo_interactions(record: dict) -> tuple[list[tuple], list[Any]]:
     return [(prompt, output, {})], []
 
 
-def _promptfoo_db(path: Path, opts: argparse.Namespace) -> list[dict]:
-    """Rebuild one `promptfoo export` document per run of a promptfoo.db.
+_PROMPTFOO_JSON_COLUMNS = {"config", "results", "test_case", "prompt", "provider", "response", "grading_result", "named_scores", "metadata"}
+
+
+def _camel(column: str) -> str:
+    """snake_case columns become the camelCase keys of the export: test_case -> testCase."""
+    return re.sub(r"_([a-z])", lambda m: m[1].upper(), column)
+
+
+def _promptfoo_db(path: Path, opts: argparse.Namespace) -> Any:
+    """Yield one `promptfoo export` document per run of a promptfoo.db.
 
     ponytail: runs saved before results version 4 keep their rows in evals.results and are skipped.
     """
-    json_columns = {"config", "results", "test_case", "prompt", "provider", "response", "grading_result", "named_scores", "metadata"}
+    ids = opts.promptfoo_eval_id or []
+    where = f"WHERE id IN ({','.join('?' * len(ids))})" if ids else ""
     with closing(connect_ro(path)) as con:
-        return _promptfoo_db_runs(con, json_columns, opts)
-
-
-def _promptfoo_db_runs(con: Any, json_columns: set, opts: argparse.Namespace) -> list[dict]:
-    def rows(sql: str, *params: Any) -> list[dict]:
-        # snake_case columns become the camelCase keys of the export: test_case -> testCase.
-        return [
-            {re.sub(r"_([a-z])", lambda m: m[1].upper(), k): json.loads(v) if k in json_columns and isinstance(v, str) else v for k, v in dict(r).items()}
-            for r in con.execute(sql, params)
-        ]
-
-    runs = []
-    for ev in rows("SELECT * FROM evals ORDER BY created_at"):
-        if opts.promptfoo_eval_id and ev["id"] not in opts.promptfoo_eval_id:
-            continue
-        results = rows("SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx", ev["id"])
-        if results:
-            runs.append({"evalId": ev["id"], "config": ev["config"], "results": {"stats": ev["results"], "results": results}})
-    return runs
+        for ev in sql_rows(con, f"SELECT * FROM evals {where} ORDER BY created_at", ids, _PROMPTFOO_JSON_COLUMNS, _camel):
+            sql = "SELECT * FROM eval_results WHERE eval_id = ? ORDER BY test_idx, prompt_idx"
+            results = sql_rows(con, sql, (ev["id"],), _PROMPTFOO_JSON_COLUMNS, _camel)
+            if results:
+                yield {"evalId": ev["id"], "config": ev["config"], "results": {"stats": ev["results"], "results": results}}
 
 
 def convert_promptfoo(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
     scenarios: list = []
     duration_ms = 0
-    for raw in _promptfoo_db(path, opts) if is_sqlite(path) else [load_json(path)]:
+    for raw in _promptfoo_db(path, opts) if is_sqlite(file_header(path)) else [load_json(path)]:
         converted, duration = _promptfoo_run(raw, path)
         scenarios += converted
         duration_ms += duration
@@ -510,7 +525,6 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
         ]
         annotations = {
             **run,
-            "source_file": path.name,
             "result_id": record.get("id"),
             "test_idx": test_idx,
             "prompt_idx": record.get("promptIdx"),
@@ -527,13 +541,12 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
             "failure_reason": _PROMPTFOO_FAILURE_REASONS.get(record.get("failureReason")),
             "named_scores": record.get("namedScores"),
             "grader_comment": (record.get("gradingResult") or {}).get("comment"),
-            "system_prompt": system_prompt(system),
             "redteam_history": response_meta.get("redteamHistory"),
             "redteam_tree_history": response_meta.get("redteamTreeHistory"),
             "response_metadata": {k: v for k, v in response_meta.items() if k not in _PROMPTFOO_BULKY_KEYS},
         }
         checks = _promptfoo_checks(record, test_meta)
-        scenarios.append(make_scenario("promptfoo", name, interactions, checks, tags, annotations))
+        scenarios.append(make_scenario("promptfoo", path, name, interactions, system, checks, tags, annotations))
 
     duration = number((summary.get("stats") or {}).get("durationMs")) or 0
     return scenarios, int(duration)
@@ -593,14 +606,12 @@ def convert_deepteam(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
             f"risk-category:{risk}" if risk else None,
         ]
         annotations = {
-            "source_file": path.name,
             "test_case_index": index,
             "reason": case.get("reason"),
-            "system_prompt": system_prompt(system),
             "run_cvss_score": overview.get("cvss_score", overview.get("cvssScore")),
             **extra,
         }
-        scenarios.append(make_scenario("deepteam", name, interactions, [check], tags, annotations))
+        scenarios.append(make_scenario("deepteam", path, name, interactions, system, [check], tags, annotations))
 
     return scenarios, int((number(overview.get("run_duration", overview.get("runDuration"))) or 0) * 1000)
 
@@ -659,6 +670,39 @@ def _pyrit_score_value(score: dict) -> float | None:
     return {"true": 1.0, "false": 0.0}.get(value, number(score.get("score_value")))
 
 
+def _as_list(value: Any) -> list:
+    return value if isinstance(value, list) else [value]
+
+
+def _pyrit_piece_scores(piece: dict, scores_by_piece: dict) -> list:
+    return piece.get("scores") or scores_by_piece.get(piece.get("original_prompt_id") or piece.get("id"), [])
+
+
+def _pyrit_by_conversation(pieces: list[dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for piece in pieces:
+        grouped[piece["conversation_id"]].append(piece)
+    return grouped
+
+
+def _pyrit_scenario_context(scenario: dict | None, atomic: Any, group_map: dict | None, target: Any) -> dict:
+    scenario = scenario or {}
+    return {
+        "target": target,
+        "pyrit_scenario_id": scenario.get("id"),
+        "pyrit_scenario_name": scenario.get("scenario_name"),
+        "pyrit_scenario_description": scenario.get("scenario_description"),
+        "pyrit_scenario_version": scenario.get("scenario_version"),
+        "atomic_attack": atomic,
+        "attack_group": (group_map or {}).get(atomic),
+    }
+
+
+def _pyrit_last_response(result: dict) -> list[dict]:
+    """AttackResult dumps hold only the last response."""
+    return [result["last_response"]] if result.get("last_response") else []
+
+
 def _pyrit_piece_meta(piece: dict, scores: list) -> dict:
     converted = piece.get("converted_value")
     return compact({
@@ -681,7 +725,7 @@ def _pyrit_interactions(pieces: list[dict], scores_by_piece: dict) -> tuple[list
     turns = []
     for group in messages.values():
         values = [p.get("converted_value") if p.get("converted_value") is not None else p.get("original_value") for p in group]
-        metas = [_pyrit_piece_meta(p, p.get("scores") or scores_by_piece.get(p.get("original_prompt_id") or p.get("id"), [])) for p in group]
+        metas = [_pyrit_piece_meta(p, _pyrit_piece_scores(p, scores_by_piece)) for p in group]
         if len(group) == 1 and group[0].get("converted_value_data_type", "text") == "text":
             content, meta = values[0], metas[0]
         else:  # multimodal message: keep each piece with its data type
@@ -699,9 +743,10 @@ def _pyrit_after_since(timestamp: Any, since: str) -> bool:
     return at >= start
 
 
-def _pyrit_keep(result: dict, labels: dict, scenario_id: Any, opts: argparse.Namespace) -> bool:
+def _pyrit_keep(result: dict, labels: dict | None, scenario_id: Any, opts: argparse.Namespace) -> bool:
+    """Apply the --pyrit-* filters. labels=None skips the label filter, to filter before reading the pieces."""
     return (
-        all(str(labels.get(k)) == v for k, v in opts.pyrit_labels.items())
+        (labels is None or all(str(labels.get(k)) == v for k, v in opts.pyrit_labels.items()))
         and (not opts.pyrit_scenario_id or scenario_id in opts.pyrit_scenario_id)
         and (not opts.pyrit_conversation_id or result.get("conversation_id") in opts.pyrit_conversation_id)
         and (not opts.pyrit_since or _pyrit_after_since(result.get("timestamp"), opts.pyrit_since))
@@ -740,11 +785,10 @@ def _pyrit_attack_scenario(result: dict, pieces: list[dict], scores_by_piece: di
         f"attack:{attack}" if attack else None,
         f"scenario:{context['pyrit_scenario_name']}" if context.get("pyrit_scenario_name") else None,
         f"attack-group:{context['attack_group']}" if context.get("attack_group") else None,
-        *(f"harm-category:{h}" for h in (harm if isinstance(harm, list) else [harm])),
+        *(f"harm-category:{h}" for h in _as_list(harm)),
         *(f"{k}:{v}" for k, v in labels.items()),
     ]
     annotations = {
-        "source_file": path.name,
         "objective": result.get("objective"),
         "attack_result_id": result.get("attack_result_id") or result.get("id"),
         "conversation_id": result.get("conversation_id"),
@@ -759,13 +803,12 @@ def _pyrit_attack_scenario(result: dict, pieces: list[dict], scores_by_piece: di
         "pyrit_version": result.get("pyrit_version") or attack_node.get("pyrit_version"),
         "attack_metadata": result.get("attack_metadata") or result.get("metadata"),
         "total_retries": result.get("total_retries"),
-        "system_prompt": system_prompt(system),
         "related_conversations": result.get("related_conversations"),
         "pruned_conversation_ids": result.get("pruned_conversation_ids"),
         **{k: v for k, v in context.items() if k != "target"},
     }
     duration = int(number(result.get("execution_time_ms")) or 0)
-    return make_scenario("pyrit", name, interactions, [check], tags, annotations, duration)
+    return make_scenario("pyrit", path, name, interactions, system, [check], tags, annotations, duration)
 
 
 def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_by_piece: dict, path: Path, opts: argparse.Namespace) -> list:
@@ -776,7 +819,7 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
         labels = first.get("labels") or {}
         if not _pyrit_keep({"conversation_id": conversation_id, "timestamp": first.get("timestamp")}, labels, None, opts):
             continue
-        scores = [s for p in pieces for s in (p.get("scores") or scores_by_piece.get(p.get("original_prompt_id") or p.get("id"), []))]
+        scores = [s for p in pieces for s in _pyrit_piece_scores(p, scores_by_piece)]
         if not scores and not opts.pyrit_all_conversations:
             continue  # adversarial-chat and scorer conversations carry no score
         checks = []
@@ -795,11 +838,9 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
             checks.append(make_check("skip", "pyrit", "The conversation has no score."))
         interactions, system = _pyrit_interactions(pieces, scores_by_piece)
         attack = _pyrit_class(first.get("attack_identifier") or first.get("orchestrator_identifier"))
-        harm = first.get("targeted_harm_categories") or []
-        harm = harm if isinstance(harm, list) else [harm]
+        harm = _as_list(first.get("targeted_harm_categories") or [])
         tags = [f"attack:{attack}" if attack else None, *(f"harm-category:{h}" for h in harm), *(f"{k}:{v}" for k, v in labels.items())]
         annotations = {
-            "source_file": path.name,
             "conversation_id": conversation_id,
             "attack": attack,
             "attack_instance_id": (first.get("orchestrator_identifier") or {}).get("id"),
@@ -808,26 +849,15 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
             "targeted_harm_categories": harm,
             "timestamp": first.get("timestamp"),
             "pyrit_version": first.get("pyrit_version"),
-            "system_prompt": system_prompt(system),
             "verdict_source": "scores (no attack outcome in this input)",
         }
         name = f"{attack or 'conversation'} · {conversation_id}"
-        scenarios.append(make_scenario("pyrit", name, interactions, checks, tags, annotations))
+        scenarios.append(make_scenario("pyrit", path, name, interactions, system, checks, tags, annotations))
     return scenarios
 
 
 def _pyrit_rows(con: Any, sql: str, params: Any = ()) -> list[dict]:
-    rows = []
-    for row in con.execute(sql, params):
-        item = dict(row)
-        for key in item.keys() & _PYRIT_JSON_COLUMNS:
-            if isinstance(item[key], str):
-                try:
-                    item[key] = json.loads(item[key])  # SQLAlchemy stores JSON null as the text 'null'
-                except json.JSONDecodeError:
-                    pass
-        rows.append(item)
-    return rows
+    return sql_rows(con, sql, params, _PYRIT_JSON_COLUMNS)
 
 
 def _pyrit_db(path: Path, opts: argparse.Namespace) -> list:
@@ -844,15 +874,14 @@ def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
     def grouped(table: str, column: str, values: Any, order: str = "") -> dict:
         """Fetch rows whose column is in values, grouped by that column.
 
-        One IN query per 500 values: the columns have no index and the DB is read-only,
-        so one query per conversation would scan the table once per attack.
+        The values go in one JSON array parameter: the columns have no index and the DB is
+        read-only, so every query scans the whole table.
         """
         found: dict = defaultdict(list)
         values = list(dict.fromkeys(v for v in values if v))
-        for start in range(0, len(values), 500):
-            chunk = values[start:start + 500]
-            sql = f"SELECT * FROM {table} WHERE {column} IN ({','.join('?' * len(chunk))}) {order}"
-            for row in _pyrit_rows(con, sql, chunk):
+        if values:
+            sql = f"SELECT * FROM {table} WHERE {column} IN (SELECT value FROM json_each(?)) {order}"
+            for row in _pyrit_rows(con, sql, (json.dumps(values),)):
                 found[row[column]].append(row)
         return found
 
@@ -861,11 +890,8 @@ def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
 
     results = _pyrit_rows(con, "SELECT * FROM AttackResultEntries ORDER BY timestamp") if "AttackResultEntries" in tables else []
     if not results:  # PyRIT < 0.10 style data: no attack outcomes
-        pieces_by_conv: dict[str, list[dict]] = defaultdict(list)
         all_pieces = _pyrit_rows(con, "SELECT * FROM PromptMemoryEntries ORDER BY conversation_id, sequence, timestamp")
-        for piece in all_pieces:
-            pieces_by_conv[piece["conversation_id"]].append(piece)
-        return _pyrit_conversation_scenarios(pieces_by_conv, scores_for(all_pieces), path, opts)
+        return _pyrit_conversation_scenarios(_pyrit_by_conversation(all_pieces), scores_for(all_pieces), path, opts)
 
     scenario_rows = {s["id"]: s for s in _pyrit_rows(con, "SELECT * FROM ScenarioResultEntries")} if "ScenarioResultEntries" in tables else {}
     by_conversation = {}  # 0.10 to 0.14: attack_results_json maps atomic attack names to conversation IDs
@@ -876,17 +902,24 @@ def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
     targets = {}
     if "Conversations" in tables:
         targets = {r["conversation_id"]: r.get("target_identifier") for r in _pyrit_rows(con, "SELECT conversation_id, target_identifier FROM Conversations")}
-    conversation_ids = [r.get("conversation_id") for r in results]
-    conversation_ids += [c for r in results for c in r.get("adversarial_chat_conversation_ids") or []]
-    pieces_by_conv = grouped("PromptMemoryEntries", "conversation_id", conversation_ids, "ORDER BY sequence, timestamp")
-    scores_by_piece = scores_for(p for c in conversation_ids for p in pieces_by_conv.get(c, []))
-    scores_by_id = {k: v[0] for k, v in grouped("ScoreEntries", "id", (r.get("last_score_id") for r in results)).items()}
 
-    scenarios = []
+    # Filter before reading pieces and scores. Labels can live on the pieces only, so they are checked later.
+    attacks = []
     for result in results:
         scenario_row, atomic = scenario_rows.get(result.get("attribution_parent_id")), (result.get("attribution_data") or {}).get("parent_collection")
         if scenario_row is None and result.get("conversation_id") in by_conversation:
             scenario_row, atomic = by_conversation[result["conversation_id"]]
+        if _pyrit_keep(result, None, (scenario_row or {}).get("id"), opts):
+            attacks.append((result, scenario_row, atomic))
+    target_ids = [r.get("conversation_id") for r, _, _ in attacks]
+    adversarial_ids = [c for r, _, _ in attacks for c in r.get("adversarial_chat_conversation_ids") or []]
+    pieces_by_conv = grouped("PromptMemoryEntries", "conversation_id", target_ids + adversarial_ids, "ORDER BY sequence, timestamp")
+    # The adversarial chat keeps only roles and contents, so only the target conversations need scores.
+    scores_by_piece = scores_for(p for c in target_ids for p in pieces_by_conv.get(c, []))
+    scores_by_id = {k: v[0] for k, v in grouped("ScoreEntries", "id", (r.get("last_score_id") for r, _, _ in attacks)).items()}
+
+    scenarios = []
+    for result, scenario_row, atomic in attacks:
         pieces = pieces_by_conv.get(result.get("conversation_id"), [])
         labels = result.get("labels") or (pieces[0].get("labels") if pieces else None) or {}
         if not _pyrit_keep(result, labels, (scenario_row or {}).get("id"), opts):
@@ -897,14 +930,9 @@ def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
             for conversation_id in result.get("adversarial_chat_conversation_ids") or []
             for p in pieces_by_conv.get(conversation_id, [])
         ]
+        group_map = (scenario_row or {}).get("display_group_map_json")
         context = compact({
-            "target": targets.get(result.get("conversation_id")),
-            "pyrit_scenario_id": (scenario_row or {}).get("id"),
-            "pyrit_scenario_name": (scenario_row or {}).get("scenario_name"),
-            "pyrit_scenario_description": (scenario_row or {}).get("scenario_description"),
-            "pyrit_scenario_version": (scenario_row or {}).get("scenario_version"),
-            "atomic_attack": atomic,
-            "attack_group": ((scenario_row or {}).get("display_group_map_json") or {}).get(atomic),
+            **_pyrit_scenario_context(scenario_row, atomic, group_map, targets.get(result.get("conversation_id"))),
             # Roles are reversed in the adversarial chat: the attacker speaks as "assistant".
             "adversarial_chat": adversarial,
         })
@@ -913,14 +941,13 @@ def _pyrit_db_scenarios(con: Any, path: Path, opts: argparse.Namespace) -> list:
 
 
 def convert_pyrit(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
-    with path.open("rb") as handle:
-        head = handle.read(16)
-    if head[8:12] == b"DUCK":
+    header = file_header(path)
+    if header[8:12] == b"DUCK":
         raise ValueError(
             "This is a PyRIT DuckDB memory (PyRIT 0.9 and older), which the standard library cannot read. "
             "Ask the user to export it with memory.export_conversations(file_path=..., export_type='json') in that PyRIT version."
         )
-    if head.startswith(b"SQLite format 3\x00"):
+    if is_sqlite(header):
         scenarios = _pyrit_db(path, opts)
     else:
         data = load_json(path)
@@ -929,31 +956,17 @@ def convert_pyrit(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
         scenarios = []
         if "attack_results" in first:  # ScenarioResult dump
             for scenario in items:
-                group_map = scenario.get("display_group_map") or {}
                 for atomic, results in (scenario.get("attack_results") or {}).items():
+                    context = compact(_pyrit_scenario_context(scenario, atomic, scenario.get("display_group_map"), scenario.get("objective_target_identifier")))
                     for result in results:
-                        context = compact({
-                            "target": scenario.get("objective_target_identifier"),
-                            "pyrit_scenario_id": scenario.get("id"),
-                            "pyrit_scenario_name": scenario.get("scenario_name"),
-                            "pyrit_scenario_description": scenario.get("scenario_description"),
-                            "pyrit_scenario_version": scenario.get("scenario_version"),
-                            "atomic_attack": atomic,
-                            "attack_group": group_map.get(atomic),
-                        })
                         if _pyrit_keep(result, result.get("labels") or {}, scenario.get("id"), opts):
-                            pieces = [result["last_response"]] if result.get("last_response") else []
-                            scenarios.append(_pyrit_attack_scenario(result, pieces, {}, context, path))
+                            scenarios.append(_pyrit_attack_scenario(result, _pyrit_last_response(result), {}, context, path))
         elif "outcome" in first:  # AttackResult dumps: only the last response is available
             for result in items:
                 if _pyrit_keep(result, result.get("labels") or {}, result.get("attribution_parent_id"), opts):
-                    pieces = [result["last_response"]] if result.get("last_response") else []
-                    scenarios.append(_pyrit_attack_scenario(result, pieces, {}, {}, path))
+                    scenarios.append(_pyrit_attack_scenario(result, _pyrit_last_response(result), {}, {}, path))
         elif "conversation_id" in first:  # export_conversations or MessagePiece dumps
-            pieces_by_conv: dict[str, list[dict]] = defaultdict(list)
-            for piece in items:
-                pieces_by_conv[piece["conversation_id"]].append(piece)
-            scenarios = _pyrit_conversation_scenarios(pieces_by_conv, {}, path, opts)
+            scenarios = _pyrit_conversation_scenarios(_pyrit_by_conversation(items), {}, path, opts)
             if not scenarios and not opts.pyrit_all_conversations:
                 raise ValueError(
                     f"{path} holds PyRIT conversations without scores or attack outcomes, so there is no verdict. "
@@ -1104,7 +1117,7 @@ def cmd_upload(opts: argparse.Namespace) -> None:
         ui_base = os.environ["GISKARD_HUB_BASE_URL"].rstrip("/").removesuffix("/_api")
         for raw, payload in payloads:
             scenarios = payload["results"]
-            tool = next((s.get("final_trace", {}).get("annotations", {}).get("source_tool") for s in scenarios[:1]), None)
+            tool = scenarios[0].get("final_trace", {}).get("annotations", {}).get("source_tool") if scenarios else None
             base_name = opts.name or f"{tool or 'third-party'} results ({datetime.now():%Y-%m-%d %H:%M})"
             parts = split_payload(payload, int(opts.max_upload_mb * 1_000_000)) if opts.max_upload_mb else [payload]
             for index, part in enumerate(parts, start=1):
@@ -1167,7 +1180,7 @@ def main() -> None:
         description="Convert the result files of one tool into one SuiteResult JSON file (the payload of SuiteResult.to_hub_format()).",
     )
     convert.add_argument("files", nargs="+", help="Result files of the tool. Several files merge into one suite.")
-    convert.add_argument("--tool", required=True, choices=TOOLS, help="The tool that produced the files.")
+    convert.add_argument("--tool", required=True, choices=CONVERTERS, help="The tool that produced the files.")
     convert.add_argument("--output", help="Output JSON path. Default: giskard_results/<tool>_suite_result.json.")
     convert.add_argument("--group-by", action="append", metavar="TAG_KEY", help="Add pass/fail counts per value of this tag key to the summary. Repeatable.")
     convert.add_argument("--garak-threshold", type=float, default=0.5, help="garak eval_threshold of the run. A detector score >= threshold is a FAIL. garak does not record it. Default: 0.5.")
@@ -1182,19 +1195,21 @@ def main() -> None:
     pyrit.add_argument("--pyrit-float-threshold", type=float, default=0.5, help="Without attack results, a float_scale score >= threshold is a FAIL. Default: 0.5.")
     convert.set_defaults(func=cmd_convert)
 
-    for name, help_text in (("projects", "List Hub projects as JSON."), ("agents", "List the agents of a Hub project as JSON."), ("upload", "Upload SuiteResult JSON files to Hub, one evaluation per file.")):
+    def hub_command(name: str, help_text: str, func: Any) -> argparse.ArgumentParser:
         command = sub.add_parser(name, help=help_text, description=help_text)
         command.add_argument("--env-file", default=".env", help="File with GISKARD_HUB_BASE_URL and GISKARD_HUB_API_KEY. Environment variables win. Default: .env.")
-        if name == "agents":
-            command.add_argument("project_id")
-        if name == "upload":
-            command.add_argument("files", nargs="+", help="Files written by the convert command.")
-            command.add_argument("--project-id", required=True)
-            command.add_argument("--agent-id", help="Optional Hub agent to link the evaluations to.")
-            command.add_argument("--name", help="Evaluation name, for a single file. Default: '<tool> results (<date>)'.")
-            command.add_argument("--auto-classify-failures", action="store_true", help="Ask the Hub to classify the failure category of each failed scenario.")
-            command.add_argument("--max-upload-mb", type=float, help="Split each file into several evaluations of at most this size. Use it when the Hub rejects a large upload. By default, each file is uploaded in one request.")
-        command.set_defaults(func={"projects": cmd_projects, "agents": cmd_agents, "upload": cmd_upload}[name])
+        command.set_defaults(func=func)
+        return command
+
+    hub_command("projects", "List Hub projects as JSON.", cmd_projects)
+    hub_command("agents", "List the agents of a Hub project as JSON.", cmd_agents).add_argument("project_id")
+    upload = hub_command("upload", "Upload SuiteResult JSON files to Hub, one evaluation per file.", cmd_upload)
+    upload.add_argument("files", nargs="+", help="Files written by the convert command.")
+    upload.add_argument("--project-id", required=True)
+    upload.add_argument("--agent-id", help="Optional Hub agent to link the evaluations to.")
+    upload.add_argument("--name", help="Evaluation name, for a single file. Default: '<tool> results (<date>)'.")
+    upload.add_argument("--auto-classify-failures", action="store_true", help="Ask the Hub to classify the failure category of each failed scenario.")
+    upload.add_argument("--max-upload-mb", type=float, help="Split each file into several evaluations of at most this size. Use it when the Hub rejects a large upload. By default, each file is uploaded in one request.")
 
     opts = parser.parse_args()
     try:
