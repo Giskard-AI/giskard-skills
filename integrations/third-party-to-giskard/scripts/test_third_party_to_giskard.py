@@ -140,6 +140,8 @@ def promptfoo(tmp: Path) -> None:
     con.commit()
     con.close()
     from_db = convert("promptfoo", db)
+    code, summary, _ = run_convert("promptfoo", db)
+    assert code == 0 and "eval-empty" in summary["warnings"][0], summary
     assert statuses(from_db) == statuses(scenarios) * 2 and "eval-id:eval-a" in from_db[0]["tags"], statuses(from_db)
     assert len({s["scenario_name"] for s in from_db}) == len(from_db), "scenario names must be unique"
     assert statuses(convert("promptfoo", db, "--promptfoo-eval-id", "eval-b")) == statuses(scenarios)
@@ -260,6 +262,11 @@ def upload_split(tmp: Path) -> None:
     parts = module.split_payload(payload, 350)
     assert [len(p["results"]) for p in parts] == [3, 3, 3, 1], [len(p["results"]) for p in parts]
     assert all(p["duration_ms"] == 5 for p in parts) and len(module.split_payload(payload, 10**9)) == 1
+    # Each part reports its own counts, not the counts of the whole suite.
+    mixed = {"results": [{"status": st} for st in ("pass", "fail", "skip", "pass")], "passed_count": 2, "pass_rate": 2 / 3}
+    first, second = module.split_payload(mixed, 30)[:1] + module.split_payload(mixed, 30)[1:2]
+    assert (first["passed_count"], first["failed_count"], first["pass_rate"]) == (1, 0, 1.0), first
+    assert (second["failed_count"], second["passed_count"]) == (1, 0), second
 
 
 if __name__ == "__main__":
