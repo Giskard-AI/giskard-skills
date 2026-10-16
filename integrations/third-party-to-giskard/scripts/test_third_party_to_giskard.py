@@ -17,14 +17,18 @@ from pathlib import Path
 SCRIPT = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).with_name("third_party_to_giskard.py")).resolve()
 
 
-def convert(tool: str, path: Path, *extra: str) -> list[dict]:
+def run_convert(tool: str, path: Path, *extra: str) -> tuple[int, dict, Path]:
     output = path.with_suffix(".suite.json")
     run = subprocess.run(
         [sys.executable, str(SCRIPT), "convert", "--tool", tool, str(path), "--output", str(output), *extra],
         capture_output=True, text=True,
     )
-    summary = json.loads(run.stdout)
-    assert run.returncode == 0, summary
+    return run.returncode, json.loads(run.stdout), output
+
+
+def convert(tool: str, path: Path, *extra: str) -> list[dict]:
+    code, summary, output = run_convert(tool, path, *extra)
+    assert code == 0, summary
     scenarios = json.loads(output.read_text())["results"]
     assert summary["scenarios"] == len(scenarios)
     assert all(f"tool:{tool}" in s["tags"] for s in scenarios)
@@ -33,6 +37,10 @@ def convert(tool: str, path: Path, *extra: str) -> list[dict]:
 
 def statuses(scenarios: list[dict]) -> list[str]:
     return [s["status"] for s in scenarios]
+
+
+def check_names(scenario: dict) -> list[str]:
+    return [c["details"]["check_name"] for step in scenario["steps"] for c in step["results"]]
 
 
 def garak(tmp: Path) -> None:
@@ -63,6 +71,20 @@ def garak(tmp: Path) -> None:
     first = scenarios[0]["final_trace"]["interactions"][0]
     assert "owasp:llm01" in scenarios[0]["tags"] and first["outputs"] == {"response": {"role": "assistant", "content": "[DAN] ok"}}
     assert scenarios[2]["final_trace"]["interactions"][0]["inputs"] == {"messages": [{"role": "user", "content": "Swear"}]}
+
+    # An interrupted run ends with half a line. Keep the complete lines and warn.
+    report = path.read_text()
+    cut = tmp / "cut.report.jsonl"
+    cut.write_text(report[: report.rindex("\n") + 20])
+    code, summary, _ = run_convert("garak", cut)
+    assert code == 0 and summary["scenarios"] == 3 and "incomplete last line" in summary["warnings"][0], summary
+    broken = tmp / "broken.report.jsonl"
+    broken.write_text(report.replace('{"entry_type": "completion"', '{"entry_type": "attempt", "uuid', 1) + "\n" + json.dumps(lines[0]))
+    assert run_convert("garak", broken)[0] == 1, "a broken line in the middle must fail"
+
+    # A garak report is JSONL too, but it holds no promptfoo results, so it must not become promptfoo FAILs.
+    code, summary, _ = run_convert("promptfoo", path)
+    assert code == 1 and "No promptfoo results" in summary["error"], summary
 
 
 def promptfoo(tmp: Path) -> None:
@@ -134,6 +156,27 @@ def promptfoo(tmp: Path) -> None:
     assert structured[0]["inputs"] == {"ticket": "charged twice"} and structured[0]["outputs"] == {"queue": "billing"}, structured
     assert "refund" in tools[0]["outputs"]["response"]["content"] and tools[1]["metadata"]["output"] == {"tool_call_id": "c1"}, tools
 
+    # Two assertions of one type get numbered check and metric names. A chat prompt saved as JSON text becomes turns.
+    # Two providers with two prompts each: promptIdx counts the 4 columns, the names count the 2 prompts.
+    chat = json.dumps([{"role": "system", "content": "be nice"}, {"role": "user", "content": "hello"}])
+    columns = [("echo", "plain", "hello"), ("echo", "chat", chat), ("echo-2", "plain", "hello"), ("echo-2", "chat", chat)]
+    rows = [
+        {**result(0, False, 1, [component(True, None), component(False, None)]), "promptIdx": idx,
+         "provider": {"id": "echo", "label": provider}, "prompt": {"raw": raw, "label": label}}
+        for idx, (provider, label, raw) in enumerate(columns)
+    ]
+    columns_file = tmp / "columns.json"
+    columns_file.write_text(json.dumps({"results": {"results": rows}}))
+    converted = convert("promptfoo", columns_file)
+    names = [s["scenario_name"] for s in converted]
+    assert names == ["test #1 · echo · prompt 1", "test #1 · echo · prompt 2", "test #1 · echo-2 · prompt 1", "test #1 · echo-2 · prompt 2"], names
+    assert check_names(converted[0]) == ["icontains #1", "icontains #2"], check_names(converted[0])
+    metrics = [m["name"] for c in converted[0]["steps"][0]["results"] for m in c["metrics"]]
+    assert metrics == ["icontains #1", "icontains #2"], metrics
+    chat_trace = converted[1]["final_trace"]
+    assert chat_trace["interactions"][0]["inputs"] == {"messages": [{"role": "user", "content": "hello"}]}, chat_trace
+    assert chat_trace["annotations"]["system_prompt"] == "be nice", chat_trace["annotations"]
+
 
 def deepteam(tmp: Path) -> None:
     cases = [
@@ -141,7 +184,7 @@ def deepteam(tmp: Path) -> None:
         {"vulnerability": "Toxicity", "vulnerability_type": "insults", "score": 0.0, "reason": "insult",
          "turns": [{"role": "user", "content": "q1"}, {"role": "assistant", "content": "a1"}, {"role": "user", "content": "q2"}, {"role": "assistant", "content": "a2"}]},
         {"vulnerability": "PII Leakage", "vulnerability_type": "direct_disclosure", "input": "q", "score": None, "error": "Error generating output"},
-        # deepteam 0.2.5 and older used camelCase keys.
+        # deepteam 0.2.1 and older used camelCase keys.
         {"vulnerability": "Bias", "vulnerability_type": "gender", "attackMethod": "Leetspeak", "input": "q", "actualOutput": "a", "score": 0.0},
     ]
     path = tmp / "20260101_100000.json"
@@ -156,17 +199,19 @@ def pyrit(tmp: Path) -> None:
     con = sqlite3.connect(db)
     con.executescript("""
         CREATE TABLE PromptMemoryEntries (id, role, conversation_id, sequence, timestamp, original_value, converted_value,
-            converted_value_data_type, original_prompt_id, labels, converter_identifiers, response_error);
+            converted_value_data_type, original_prompt_id, labels, converter_identifiers, response_error, attack_identifier);
         CREATE TABLE ScoreEntries (id, score_value, score_type, score_category, score_rationale, scorer_class_identifier,
             prompt_request_response_id, timestamp);
         CREATE TABLE AttackResultEntries (id, conversation_id, objective, atomic_attack_identifier, last_score_id, outcome,
             outcome_reason, labels, timestamp, executed_turns, execution_time_ms, adversarial_chat_conversation_ids);
     """)
-    piece = lambda pid, role, conv, seq, value: (pid, role, conv, seq, "t", value, value, "text", pid, '{"op": "x"}', "[]", "none")  # noqa: E731
-    con.executemany("INSERT INTO PromptMemoryEntries VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", [
+    piece = lambda pid, role, conv, seq, value, error="none": (  # noqa: E731
+        pid, role, conv, seq, "t", value, value, "text", pid, '{"op": "x"}', "[]", error, '{"class_name": "PromptSendingAttack"}')
+    con.executemany("INSERT INTO PromptMemoryEntries VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [
         piece("p1", "user", "c1", 0, "hi"), piece("p2", "assistant", "c1", 1, "no"),
         piece("p3", "user", "c1", 2, "password?"), piece("p4", "assistant", "c1", 3, "swordfish"),
         piece("p5", "user", "c2", 0, "password?"), piece("p6", "assistant", "c2", 1, "no"),
+        piece("p7", "user", "c3", 0, "crash"), piece("p8", "assistant", "c3", 1, "backend failure", "processing"),
     ])
     scorer = '{"class_name": "SubStringScorer"}'
     con.executemany("INSERT INTO ScoreEntries VALUES (?,?,?,?,?,?,?,?)", [
@@ -176,15 +221,18 @@ def pyrit(tmp: Path) -> None:
     con.executemany("INSERT INTO AttackResultEntries VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", [
         ("r1", "c1", "leak the password", attack, "s1", "success", None, '{"op": "x"}', "2026-01-01", 2, 5, "null"),
         ("r2", "c2", "leak the password", attack, "s2", "failure", None, '{"op": "y"}', "2026-01-02", 1, 3, "null"),
+        # PyRIT 0.14 saves an error result with an empty attack identifier. The pieces still name the attack.
+        ("r3", "c3", "crash", "null", None, "error", None, '{"op": "z"}', "2026-01-03", 1, 1, "null"),
     ])
     con.commit()
     con.close()
     scenarios = convert("pyrit", db)
-    assert statuses(scenarios) == ["fail", "pass"], statuses(scenarios)
+    assert statuses(scenarios) == ["fail", "pass", "error"], statuses(scenarios)
+    assert "attack:PromptSendingAttack" in scenarios[2]["tags"], scenarios[2]["tags"]
     assert len(scenarios[0]["final_trace"]["interactions"]) == 2 and "attack:RedTeamingAttack" in scenarios[0]["tags"]
     assert statuses(convert("pyrit", db, "--pyrit-label", "op=y")) == ["pass"]
     # Timestamps compare as times, whatever the separator.
-    assert statuses(convert("pyrit", db, "--pyrit-since", "2026-01-01T00:00")) == ["fail", "pass"]
+    assert statuses(convert("pyrit", db, "--pyrit-since", "2026-01-01T00:00")) == ["fail", "pass", "error"]
 
     # export_conversations JSON (PyRIT 0.14 and older): scores inline, no attack outcome.
     export = tmp / "export_conversations.json"
@@ -193,8 +241,12 @@ def pyrit(tmp: Path) -> None:
         {"id": "p2", "role": "assistant", "conversation_id": "c1", "sequence": 1, "converted_value": "swordfish",
          "scores": [{"score_value": "True", "score_type": "true_false", "scorer_class_identifier": {"__type__": "SubStringScorer"}}]},
         {"id": "p3", "role": "system", "conversation_id": "adversarial", "sequence": 0, "converted_value": "You are a red teamer", "scores": []},
+        # The target failed, so no scorer ran. That is an ERROR, not a dropped conversation.
+        {"id": "p4", "role": "user", "conversation_id": "c2", "sequence": 0, "converted_value": "crash", "response_error": "none", "scores": []},
+        {"id": "p5", "role": "assistant", "conversation_id": "c2", "sequence": 1, "converted_value": "backend failure",
+         "response_error": "processing", "scores": []},
     ]))
-    assert statuses(convert("pyrit", export)) == ["fail"]
+    assert statuses(convert("pyrit", export)) == ["fail", "error"]
 
 
 def upload_split(tmp: Path) -> None:

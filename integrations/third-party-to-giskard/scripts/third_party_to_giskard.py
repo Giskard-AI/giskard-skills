@@ -131,6 +131,33 @@ def pair_turns(turns: list[tuple[Any, Any, dict]]) -> tuple[list[tuple], list[An
     return pairs, system
 
 
+def unique_names(names: list[str], suffix: str = " ({})") -> list[str]:
+    """Number the names that repeat, skipping numbers already taken: [a, a, a (1)] -> [a (2), a (3), a (1)]."""
+    taken, counts, seen = set(names), Counter(names), Counter()
+    unique = []
+    for name in names:
+        new = name
+        if counts[name] > 1:
+            while new in taken:
+                seen[name] += 1
+                new = name + suffix.format(seen[name])
+            taken.add(new)
+        unique.append(new)
+    return unique
+
+
+def unique_checks(checks: list) -> list:
+    """Number repeated check names, such as two `contains` assertions, so the Hub shows them apart."""
+    names = [c.details.get("check_name") or "" for c in checks]
+    renamed = []
+    for check, old, new in zip(checks, names, unique_names(names, " #{}")):
+        if new != old:
+            metrics = [m.model_copy(update={"name": new}) if m.name == old else m for m in check.metrics]
+            check = check.model_copy(update={"details": {**check.details, "check_name": new}, "metrics": metrics})
+        renamed.append(check)
+    return renamed
+
+
 def make_check(status: str, name: str, message: Any = None, details: dict | None = None, metrics: dict | None = None):
     from giskard.checks import CheckResult, CheckStatus, Metric
 
@@ -170,7 +197,7 @@ def make_scenario(
     annotations = {"source_tool": tool, "scenario_name": name, "source_file": path.name, "system_prompt": system_prompt(system), **annotations}
     trace = Trace(interactions=[hub_interaction(i, o, m) for i, o, m in interactions], annotations=compact(annotations))
     step = TestCaseResult(
-        results=checks,
+        results=unique_checks(checks),
         duration_ms=duration_ms,
         last_interaction_index=len(interactions) - 1 if interactions else None,
     )
@@ -225,7 +252,14 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
         for line in handle:
             if not line.strip():
                 continue
-            entry = json.loads(line)
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                if handle.read().strip():  # a broken line in the middle: not a garak report
+                    raise
+                # garak writes the report as it runs, so an interrupted run can end with half a line.
+                opts.warnings.append(f"{path}: skipped the incomplete last line. The garak run was probably interrupted.")
+                break
             kind = entry.get("entry_type")
             if kind == "attempt":
                 # Each attempt is logged twice: status 1 after generation, status 2 after detection.
@@ -337,6 +371,8 @@ def convert_garak(path: Path, opts: argparse.Namespace) -> tuple[list, int]:
 # ---------------------------------------------------------------- promptfoo
 
 _PROMPTFOO_FAILURE_REASONS = {0: "NONE", 1: "ASSERT", 2: "ERROR"}
+# Every promptfoo result row has some of these keys. Rows without them come from another tool.
+_PROMPTFOO_RESULT_KEYS = {"success", "gradingResult", "response", "testCase", "failureReason"}
 _PROMPTFOO_BULKY_KEYS = {"messages", "redteamHistory", "redteamTreeHistory"}
 
 
@@ -402,6 +438,13 @@ def _promptfoo_interactions(record: dict) -> tuple[list[tuple], list[Any]]:
     if isinstance(messages, list) and messages:  # multi-turn strategies (crescendo, goat, hydra...)
         return pair_turns([_promptfoo_turn(m) for m in messages if isinstance(m, dict)])
     prompt = meta.get("redteamFinalPrompt") or response.get("prompt") or (record.get("prompt") or {}).get("raw")
+    if isinstance(prompt, str) and prompt.lstrip().startswith("["):  # a chat prompt rendered as JSON text
+        try:
+            chat = json.loads(prompt)
+        except json.JSONDecodeError:
+            chat = None
+        if isinstance(chat, list) and chat and all(isinstance(m, dict) and "role" in m and "content" in m for m in chat):
+            prompt = chat
     if isinstance(prompt, list):  # chat prompt as [{role, content}]
         return pair_turns([_promptfoo_turn(m) for m in prompt if isinstance(m, dict)] + [("assistant", output, {})])
     test_vars = record.get("vars") or (record.get("testCase") or {}).get("vars")
@@ -450,7 +493,7 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
     else:
         data = raw["data"] if isinstance(raw.get("data"), dict) else raw  # shared-eval wrapper
     summary = data.get("results") or {}
-    records = summary.get("results") or []
+    records = [r for r in summary.get("results") or [] if isinstance(r, dict) and _PROMPTFOO_RESULT_KEYS & r.keys()]
     config = data.get("config") or {}
     meta = data.get("metadata") or {}
     run = {
@@ -471,8 +514,16 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
         return (record.get("prompt") or {}).get("label")
 
     # The same test runs once per provider x prompt column. Name the column only when there are several.
+    # promptIdx counts the prompt x provider columns, so number the distinct prompts instead.
+    def prompt_key(record: dict) -> str:
+        label = prompt_label(record)
+        return str(label if label is not None else record.get("promptIdx"))
+
+    prompt_numbers: dict[str, int] = {}
+    for record in sorted(records, key=lambda r: r.get("promptIdx") or 0):
+        prompt_numbers.setdefault(prompt_key(record), len(prompt_numbers) + 1)
     multi_provider = len({str(provider_name(r)) for r in records}) > 1
-    multi_prompt = len({str(prompt_label(r)) for r in records}) > 1
+    multi_prompt = len(prompt_numbers) > 1
     scenarios = []
     for index, record in enumerate(records, start=1):
         test = record.get("testCase") or {}
@@ -494,7 +545,7 @@ def _promptfoo_run(raw: Any, path: Path) -> tuple[list, int]:
         if multi_provider:
             name += f" · {provider_name(record)}"
         if multi_prompt:
-            name += f" · prompt {(record.get('promptIdx') or 0) + 1}"
+            name += f" · prompt {prompt_numbers[prompt_key(record)]}"
         if isinstance(record.get("repeatIndex"), int):
             name += f" · repeat {record['repeatIndex'] + 1}"
 
@@ -757,10 +808,11 @@ def _pyrit_attack_scenario(result: dict, pieces: list[dict], scores_by_piece: di
     outcome = str(result.get("outcome") or "undetermined").lower()
     attack_node = _pyrit_attack_node(result.get("atomic_attack_identifier") or result.get("attack_identifier"))
     attack_children = attack_node.get("children") or {}
-    attack = _pyrit_class(attack_node)
+    first = pieces[0] if pieces else {}
+    # Error results of PyRIT 0.14 have an empty attack identifier, but the pieces still name the attack.
+    attack = _pyrit_class(attack_node) or _pyrit_class(first.get("attack_identifier") or first.get("orchestrator_identifier"))
     last_score = result.get("last_score") or {}
     check_name = _pyrit_scorer_name(last_score, _pyrit_class(attack_children.get("objective_scorer"))) or "objective"
-    first = pieces[0] if pieces else {}
     labels = result.get("labels") or first.get("labels") or {}
     harm = result.get("targeted_harm_categories") or first.get("targeted_harm_categories") or last_score.get("score_category") or []
     target = context.get("target") or attack_children.get("objective_target") or first.get("prompt_target_identifier") or {}
@@ -820,7 +872,8 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
         if not _pyrit_keep({"conversation_id": conversation_id, "timestamp": first.get("timestamp")}, labels, None, opts):
             continue
         scores = [s for p in pieces for s in _pyrit_piece_scores(p, scores_by_piece)]
-        if not scores and not opts.pyrit_all_conversations:
+        errors = [str(p["response_error"]) for p in pieces if p.get("response_error") not in (None, "", "none")]
+        if not scores and not errors and not opts.pyrit_all_conversations:
             continue  # adversarial-chat and scorer conversations carry no score
         checks = []
         for score in scores:
@@ -834,7 +887,9 @@ def _pyrit_conversation_scenarios(pieces_by_conv: dict[str, list[dict]], scores_
                 status = "fail" if value >= opts.pyrit_float_threshold else "pass"
             message = score.get("score_rationale") or score.get("score_value_description") or f"Score {score.get('score_value')} ({score.get('score_type')})."
             checks.append(make_check(status, name, message, _pyrit_score(score), {name: value}))
-        if not checks:
+        if not checks and errors:  # the target failed before any scorer ran
+            checks.append(make_check("error", "pyrit", f"The target returned an error ({', '.join(dict.fromkeys(errors))}).", {"response_errors": errors}))
+        elif not checks:
             checks.append(make_check("skip", "pyrit", "The conversation has no score."))
         interactions, system = _pyrit_interactions(pieces, scores_by_piece)
         attack = _pyrit_class(first.get("attack_identifier") or first.get("orchestrator_identifier"))
@@ -1000,6 +1055,7 @@ def cmd_convert(opts: argparse.Namespace) -> None:
     from giskard.checks import SuiteResult
 
     opts.pyrit_labels = dict(item.split("=", 1) for item in opts.pyrit_label or [])
+    opts.warnings = []
     scenarios: list = []
     duration_ms = 0
     inputs = []
@@ -1019,15 +1075,8 @@ def cmd_convert(opts: argparse.Namespace) -> None:
         print(f"{path}: {len(converted)} scenarios", file=sys.stderr)
 
     # Make scenario names unique. Runs repeat the same tests, and PyRIT names cut objectives at 80 characters.
-    taken = {s.scenario_name for s in scenarios}
-    counts, seen = Counter(s.scenario_name for s in scenarios), Counter()
-    for i, s in enumerate(scenarios):
-        if counts[s.scenario_name] > 1:
-            name = s.scenario_name
-            while name in taken:
-                seen[s.scenario_name] += 1
-                name = f"{s.scenario_name} ({seen[s.scenario_name]})"
-            taken.add(name)
+    for i, (s, name) in enumerate(zip(list(scenarios), unique_names([s.scenario_name for s in scenarios]))):
+        if name != s.scenario_name:
             s.final_trace.annotations["scenario_name"] = name
             scenarios[i] = s.model_copy(update={"scenario_name": name})
 
@@ -1049,6 +1098,8 @@ def cmd_convert(opts: argparse.Namespace) -> None:
         "duration_ms": duration_ms,
         "tag_keys": sorted({tag.partition(":")[0] for s in scenarios for tag in s.tags}),
     }
+    if opts.warnings:
+        summary["warnings"] = opts.warnings
     for key in opts.group_by or []:
         groups = result.group_by(key).groups
         summary[f"by_{key}"] = {

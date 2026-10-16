@@ -44,7 +44,7 @@ python <skill>/scripts/third_party_to_giskard.py convert --tool <garak|promptfoo
 
 The command writes `giskard_results/<tool>_suite_result.json` and prints a JSON summary. Run `convert --help` for the other options, such as filters, thresholds, and `--group-by`.
 
-Check that the summary agrees with the tool's own counts. Show the summary to the user, and explain the statuses:
+Check that the summary agrees with the tool's own counts. Show the summary to the user, with any `warnings`, and explain the statuses:
 
 | Status | Meaning |
 | --- | --- |

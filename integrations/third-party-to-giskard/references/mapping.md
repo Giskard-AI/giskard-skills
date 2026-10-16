@@ -32,6 +32,8 @@ The output file is `SuiteResult.to_hub_format()`. Load it again with `SuiteResul
 - Never let a tool error become a FAIL. A FAIL must always mean that the tool saw the target fail.
 - Tags use `key:value`, so `SuiteResult.group_by(key)` works. Every scenario has `tool:<tool>`.
 - Scenario names are unique in a suite. The `convert` command adds ` (1)`, ` (2)`, and so on to names that repeat, for example the same test in several runs.
+- Check names are unique in a scenario. `make_scenario` adds ` #1`, ` #2`, and so on to check names that repeat, such as two `contains` assertions or one PyRIT score per turn, and renames their metrics the same way.
+- Problems that do not stop the conversion, such as an incomplete last line, go into the `warnings` list of the summary.
 - Keep every source field that can help a reviewer. Put per-turn data in the interaction metadata, and everything else in the annotations. The `compact` helper removes empty values.
 - Pair turns with `pair_turns`. It makes one interaction per user turn and its reply, and it returns the system prompts separately. Put the system prompts in the annotations.
 - `make_scenario` keeps a dict input or output as an object, in the Hub Structured format. It writes all other content in the Hub Chat format. The Hub UI shows chat bubbles only for Chat, and the Hub SDK cannot read plain-string interactions back. Lists and other content that is not text become JSON text, because Chat content is a string. Give a dict only when the tool recorded the object that the target received or returned.
@@ -46,7 +48,7 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 
 | Item | Mapping |
 | --- | --- |
-| Input | `<prefix>.report.jsonl`. The script reads it line by line. |
+| Input | `<prefix>.report.jsonl`. The script reads it line by line. An interrupted run can end with an incomplete line. The script skips that last line and adds a warning. A broken line before the end fails the conversion. |
 | Scenario | One per attempt and generation. Each attempt appears twice (status 1, then status 2), so the script keeps the line with the highest status for each `uuid`. |
 | Interactions | The turns of `conversations[i]`, or `messages[i]` before garak 0.13. In garak 0.9 and older, `prompt` and `outputs[i]` are plain strings. |
 | Checks | One per detector in `detector_results`. A score at or above the threshold (default 0.5) is a FAIL. A `None` score is a SKIP. An attempt with no detector results gets one SKIP check. |
@@ -57,9 +59,9 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 
 | Item | Mapping |
 | --- | --- |
-| Input | The `-o` JSON `OutputFile`, the JSONL lines, or the `{"data": ...}` share wrapper. Results version 2 and 3 both work. The SQLite database `promptfoo.db` also works. It opens read-only, and each row of `evals` with rows in `eval_results` becomes one run. Runs saved before results version 4 are skipped, because their rows are in `evals.results`. |
-| Scenario | One per result row. A row is one test for one provider, prompt, and repeat. |
-| Interactions | `response.metadata.messages` for multi-turn strategies. Otherwise one interaction from `redteamFinalPrompt`, `response.prompt`, or `prompt.raw`, with `response.output`. When `response.output` is an object and the test has `vars`, the interaction is Structured: `inputs` is the `vars`, which fill the request body, and `outputs` is the object. Message fields such as `tool_calls` and `tool_call_id` go into the metadata. A message with only tool calls shows the calls as JSON text. Latency, tokens, cost, and guardrails go into the metadata of the last interaction. |
+| Input | The `-o` JSON `OutputFile`, the JSONL lines, or the `{"data": ...}` share wrapper. Results version 2 and 3 both work. The SQLite database `promptfoo.db` also works. It opens read-only, and each row of `evals` with rows in `eval_results` becomes one run. Runs saved before results version 4 are skipped, because their rows are in `evals.results`. Rows without any of `success`, `gradingResult`, `response`, `testCase`, or `failureReason` are not promptfoo results and are ignored, so a file of another tool gives no scenarios. |
+| Scenario | One per result row. A row is one test for one provider, prompt, and repeat. With several prompts, the name numbers the distinct prompt labels, because `promptIdx` counts the prompt and provider columns. |
+| Interactions | `response.metadata.messages` for multi-turn strategies. Otherwise one interaction from `redteamFinalPrompt`, `response.prompt`, or `prompt.raw`, with `response.output`. A chat prompt saved as JSON text (a list of `role` and `content` messages) becomes turns, and its system message goes into the annotations. When `response.output` is an object and the test has `vars`, the interaction is Structured: `inputs` is the `vars`, which fill the request body, and `outputs` is the object. Message fields such as `tool_calls` and `tool_call_id` go into the metadata. A message with only tool calls shows the calls as JSON text. Latency, tokens, cost, and guardrails go into the metadata of the last interaction. |
 | Checks | One per item of `gradingResult.componentResults`, named by the assertion metric or type. A test with a `threshold` gets one overall check, because promptfoo combines the assertions. `failureReason` 2 is an ERROR. The `error` field alone does not mean an error, because promptfoo also fills it for failed assertions. |
 | Tags | `eval-id`, `plugin`, `strategy` (`basic` when absent), `severity`, `harm-category`, `provider`, `metric`, and the config tags. |
 | Annotations | Eval ID, promptfoo version, description, vars, test metadata, success, score, failure reason, red-team history, and response metadata. |
@@ -68,7 +70,7 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 
 | Item | Mapping |
 | --- | --- |
-| Input | The JSON from `RiskAssessment.save()`. Keys can be snake_case or camelCase. |
+| Input | The JSON from `RiskAssessment.save()`. DeepTeam 0.2.1 and older write `riskCategory`, `attackMethod`, and `actualOutput`. Newer versions write DeepTeam's own fields in snake_case and the fields inherited from deepeval in camelCase, such as `toolsCalled` and `retrievalContext`. The list is always `test_cases`. |
 | Scenario | One per item of `test_cases`. |
 | Interactions | `turns` for multi-turn attacks. Otherwise `input` and `actual_output`. |
 | Checks | One check named `<vulnerability>/<vulnerability_type>`. `error` is an ERROR. A `None` score is a SKIP. A score above 0 is a PASS, and 0 is a FAIL. |
@@ -82,8 +84,8 @@ The Hub does not keep `scenario_name`, `duration_ms`, or `recommendation`. For t
 | Input | The SQLite memory database `pyrit.db`, which has the most data. Also `export_conversations` JSON (PyRIT 0.14 and older), `AttackResult` JSON dumps, and `ScenarioResult` JSON dumps. DuckDB (PyRIT 0.9 and older) and Azure SQL need a JSON export. |
 | Scenario | One per row of `AttackResultEntries`. Without attack results, one per conversation that has scores. |
 | Interactions | The pieces of `conversation_id`, grouped by `sequence`. `inputs` is the converted value that the target received. The original value, the converters, the errors, and the scores of each piece go into the metadata. |
-| Checks | One check named after the objective scorer. The `outcome` gives the status. `success` (objective achieved) is a FAIL, `failure` is a PASS, `error` is an ERROR, and `undetermined` is a SKIP. Without attack results, each score is a check, and `true` or a float at or above 0.5 is a FAIL. |
-| Tags | `attack`, `scenario`, `attack-group`, `harm-category`, and the memory labels. |
+| Checks | One check named after the objective scorer. The `outcome` gives the status. `success` (objective achieved) is a FAIL, `failure` is a PASS, `error` is an ERROR, and `undetermined` is a SKIP. Without attack results, each score is a check, and `true` or a float at or above 0.5 is a FAIL. A conversation without scores whose pieces have a `response_error` other than `none` gets one ERROR check. |
+| Tags | `attack`, `scenario`, `attack-group`, `harm-category`, and the memory labels. When the attack result has no attack identifier, as for errors in PyRIT 0.14, the attack comes from the pieces. |
 | Annotations | Objective, attack result ID, conversation ID, target, converters, labels, turns, timing, the adversarial chat transcript, and the PyRIT scenario. |
 
 The database opens read-only. Rows that no attack result references, such as scorer conversations, are not converted.
