@@ -4,7 +4,7 @@ description: Generates tailored giskard.checks test scenarios and suites for AI 
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.1.0
+  version: 1.2.0
   category: ai-testing
   tags: [giskard, checks, scenarios, red-teaming, ai-evaluation]
 ---
@@ -25,6 +25,10 @@ Do NOT generate scenarios from a vague description. Required before any code:
 Do NOT proceed without items 1-3. Helpful extras: tools, system prompt, compliance requirements, known failures, target audience.
 
 If the user has a callable but background is missing, run 3-6 neutral discovery calls against the agent first (purpose, tools, boundaries). Keep them neutral, discovery is not red-teaming. Summarize what you learned and confirm before generating scenarios. Discovery prompts are in Troubleshooting.
+
+### No-input (cron, webhook, event) agents
+
+If the agent has no user message and its real input and output are tool traffic, `inputs` is only a trigger such as `"[CRON] run"`. **Put adversarial content in tool results, never in `inputs`**: an injection in a sentinel the agent ignores passes trivially. Pass `{"inputs": "<trigger>", "mocks": {tool: rule}}` as structured inputs (the `hub-agent-setup` envelope), reset fake world state for every scenario, route write tools to recorders, and return `Interaction(inputs=inputs, outputs=summary, metadata={"tool_calls": [...]})` from the target. Assert on `metadata.tool_calls` with `FnCheck` (tool not called, arguments without PII, at most N actions), and use `Conformity` for behavioral rules. Typical fears: indirect prompt injection in tool data, autonomous high-impact actions (payments, emails with decisions, merges, pages), PII copied into outbound tool arguments, empty, malformed or failing tool results, and duplicate actions. Each scenario is a full agent run, so keep one scenario per fear, cap `max_concurrency`, and pass `return_exception=True`. See Example 8 in `references/examples.md`.
 
 ## Step 2: Map Fears to Attack Surfaces
 
@@ -183,7 +187,7 @@ Consult these before writing the related code. Do not guess API details:
 
 - `references/api-reference.md`: every check's fields and defaults, `Scenario`/`Suite`/`SuiteResult`, `UserSimulator`, `WithSpy`, `RegoPolicy`, JSONPath selectors, judge model IDs, `vulnerability_scan`, and the Common Pitfalls list mapping error messages to fixes.
 - `references/attack-patterns.md`: the 10-category attack catalog with direct/indirect/multi-turn vectors, `UserSimulator` persona templates, checks per category, and the L1-L5 complexity scale.
-- `references/examples.md`: full worked suites for customer support, RAG red-team, jailbreaking, healthcare, a data-driven battery, multi-persona testing, and the scan combo.
+- `references/examples.md`: full worked suites for customer support, RAG red-team, jailbreaking, healthcare, a data-driven battery, multi-persona testing, the scan combo, and a no-input cron agent with tool fixtures.
 
 ## Troubleshooting
 
