@@ -21,11 +21,11 @@ Identify the target agent first. A project can contain several agents, for examp
 
 Locate the target's callable/API, input/output shape, streaming behavior, conversation state, and whether it is already deployed. Infer its name, description, and supported languages. Ask only for missing connection details:
 
-If the target has no user message (a cron job, scheduler, webhook, or queue worker that reads state through tools and acts through write tools), it is a **triggered agent**. Follow [triggered-agents.md](references/triggered-agents.md) as well: register it as Structured with a `{"inputs", "mocks"}` envelope and document its mockable tools in the Hub description. For a hybrid chat and cron agent, ask which mode to register, or register both.
-
 - **Hub URL**.
 - **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
 - **Hub project name or ID**.
+
+If the target has no user message (a cron job, scheduler, webhook, or queue worker that reads state through tools and acts through write tools), it is a **triggered agent**. Follow [triggered-agents.md](references/triggered-agents.md) as well: register it as Structured with a `{"inputs", "mocks"}` envelope and document its mockable tools in the Hub description. For a hybrid chat and cron agent, ask which mode to register, or register both.
 
 Use the `giskard-hub` Python SDK when Python 3.10+ is available. Without Python, connect to the Giskard Hub MCP server and use its tools for the same steps. See [hub-sdk.md](references/hub-sdk.md#without-python-hub-mcp).
 

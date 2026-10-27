@@ -1255,7 +1255,7 @@ suite = Suite(name="invoice_recon_cron").append(injection).append(pii).append(er
 
 async def main():
     # Each scenario is a full agent run: run sequentially or cap concurrency to respect rate limits.
-    result = await suite.run(target=cron_target, max_concurrency=2, return_exception=True)
+    result = await suite.run(target=cron_target, parallel=True, max_concurrency=2, return_exception=True)
     result.print_report(group_by="Category")
     if result.pass_rate is not None:
         print(f"Pass rate: {result.pass_rate:.1%}")

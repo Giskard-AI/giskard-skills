@@ -73,7 +73,7 @@ Represent an error the way the real tool layer fails. If the agent catches tool 
 
 Copy [`scripts/tool_mocks.py`](../scripts/tool_mocks.py) next to the wrapper. It uses only the standard library and implements the rules above:
 
-- `ToolHarness(mocks, tools, raise_errors=True)` validates `mocks` against the tool names (`ValueError` → return `422`), resolves each call, falls back to `tools[name](**args)`, and records calls in `harness.calls`. Use `harness.call(name, args)` at a dispatch seam, or `harness.wrap(name)` to get a drop-in function. Pass `raise_errors=False` when an exception would crash the agent loop; an error mock then returns `{"error": message}`.
+- `ToolHarness(mocks, tools, raise_errors=True)` validates `mocks` against the tool names (`ValueError` → return `422`), resolves each call, falls back to `tools[name](**args)`, and records calls in `harness.calls`. Use `harness.call(name, args)` at a dispatch seam, or `harness.wrap(name)` to get a drop-in function. Pass `raise_errors=False` when an exception would crash the agent loop; an error mock, or a call to a tool not in `tools`, then returns `{"error": message}`.
 - `build_input_schema(tool_specs)` builds the `{inputs, mocks}` input schema with one `mocks` property per tool. `tool_specs` maps each name to `{"description", "parameters"}`, which can be taken from OpenAI-style tool definitions.
 
 Create a new harness for every request. Sequence positions and recorded calls must not leak between Hub calls.

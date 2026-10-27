@@ -17,6 +17,7 @@ default fake.
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -83,8 +84,9 @@ class ToolHarness:
 
     Create one instance per request. `tools` maps every tool name the agent can
     call to the default fake implementation, called as `fn(**arguments)`.
-    With `raise_errors=False`, an `error` mock returns `{"error": message}` as
-    the tool result instead of raising, for agents that crash on exceptions.
+    With `raise_errors=False`, an `error` mock or a call to an unknown tool
+    returns `{"error": message}` as the tool result instead of raising, for
+    agents that crash on exceptions.
     """
 
     def __init__(
@@ -103,7 +105,7 @@ class ToolHarness:
     def _select(self, name: str, args: dict[str, Any]) -> dict | None:
         for index, rule in enumerate(self.rules.get(name, [])):
             when = rule.get("when", {})
-            if any(k not in args or args[k] != v for k, v in when.items()):
+            if any(k not in args or args[k] != _json_safe(v) for k, v in when.items()):
                 continue
             if "sequence" not in rule:
                 return rule
@@ -116,7 +118,7 @@ class ToolHarness:
         args = args or {}
         record: dict[str, Any] = {"name": name, "arguments": _json_safe(args)}
         self.calls.append(record)
-        outcome = self._select(name, args)
+        outcome = self._select(name, record["arguments"])
         record["mocked"] = outcome is not None
         if outcome is not None and "error" in outcome:
             error = outcome["error"]
@@ -125,11 +127,13 @@ class ToolHarness:
                 raise ToolMockError(error["message"], error.get("type"))
             return {"error": error["message"]}
         if outcome is not None:
-            result = outcome["returns"]
+            result = copy.deepcopy(outcome["returns"])  # the agent may mutate it
         else:
             if name not in self.tools:
                 record["error"] = f"unknown tool {name}"
-                raise KeyError(name)
+                if self.raise_errors:
+                    raise KeyError(name)
+                return {"error": record["error"]}
             try:
                 result = self.tools[name](**args)
             except Exception as exc:
@@ -149,7 +153,7 @@ class ToolHarness:
 
 
 def rules_schema(parameters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """JSON Schema for one tool's rule list; `when` lists the tool's parameters."""
+    """JSON Schema for one tool's rule (or rule list); `when` lists the tool's parameters."""
     when: dict[str, Any] = {"type": "object"}
     if parameters and parameters.get("properties"):
         when["properties"] = dict(parameters["properties"])
@@ -159,18 +163,17 @@ def rules_schema(parameters: Mapping[str, Any] | None = None) -> dict[str, Any]:
         "required": ["message"],
     }
     outcome = {"type": "object", "properties": {"returns": {}, "error": error}}
-    return {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "when": when,
-                "returns": {},
-                "error": error,
-                "sequence": {"type": "array", "items": outcome, "minItems": 1},
-            },
+    rule = {
+        "type": "object",
+        "properties": {
+            "when": when,
+            "returns": {},
+            "error": error,
+            "sequence": {"type": "array", "items": outcome, "minItems": 1},
         },
     }
+    # A single rule object is accepted as shorthand for a one-item list.
+    return {"anyOf": [rule, {"type": "array", "items": rule}]}
 
 
 def build_input_schema(
