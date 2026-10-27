@@ -46,6 +46,11 @@ def _check_outcome(item: Any, where: str, keys: tuple[str, ...]) -> None:
             raise ValueError(f"{where}.error needs a string `message`")
 
 
+def _json_safe(value: Any) -> Any:
+    """Detached, JSON-typed copy (tuples become lists, unknown objects become str)."""
+    return json.loads(json.dumps(value, default=str))
+
+
 def validate_mocks(mocks: Any, tool_names: set[str]) -> dict[str, list[dict]]:
     """Return mocks normalised to `{tool: [rule, ...]}`; raise ValueError if invalid."""
     if mocks is None:
@@ -60,23 +65,23 @@ def validate_mocks(mocks: Any, tool_names: set[str]) -> dict[str, list[dict]]:
     normalised: dict[str, list[dict]] = {}
     for tool, rules in mocks.items():
         rules = rules if isinstance(rules, list) else [rules]
+        normalised[tool] = []
         for i, rule in enumerate(rules):
             where = f"mocks.{tool}[{i}]"
             _check_outcome(rule, where, _RULE_KEYS)
-            if "when" in rule and not isinstance(rule["when"], dict):
-                raise ValueError(f"{where}.when must be an object of argument values")
+            if "when" in rule:
+                if not isinstance(rule["when"], dict):
+                    raise ValueError(f"{where}.when must be an object of argument values")
+                # Normalise once here; call arguments are normalised the same way.
+                rule = {**rule, "when": _json_safe(rule["when"])}
             if "sequence" in rule:
                 seq = rule["sequence"]
                 if not isinstance(seq, list) or not seq:
                     raise ValueError(f"{where}.sequence must be a non-empty list")
                 for j, item in enumerate(seq):
                     _check_outcome(item, f"{where}.sequence[{j}]", _OUTCOME_KEYS)
-        normalised[tool] = rules
+            normalised[tool].append(rule)
     return normalised
-
-
-def _json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, default=str))
 
 
 class ToolHarness:
@@ -105,7 +110,7 @@ class ToolHarness:
     def _select(self, name: str, args: dict[str, Any]) -> dict | None:
         for index, rule in enumerate(self.rules.get(name, [])):
             when = rule.get("when", {})
-            if any(k not in args or args[k] != _json_safe(v) for k, v in when.items()):
+            if any(k not in args or args[k] != v for k, v in when.items()):
                 continue
             if "sequence" not in rule:
                 return rule
@@ -120,27 +125,29 @@ class ToolHarness:
         self.calls.append(record)
         outcome = self._select(name, record["arguments"])
         record["mocked"] = outcome is not None
-        if outcome is not None and "error" in outcome:
-            error = outcome["error"]
-            record["error"] = error["message"]
-            if self.raise_errors:
-                raise ToolMockError(error["message"], error.get("type"))
-            return {"error": error["message"]}
-        if outcome is not None:
-            result = copy.deepcopy(outcome["returns"])  # the agent may mutate it
-        else:
+        if outcome is None:
             if name not in self.tools:
-                record["error"] = f"unknown tool {name}"
-                if self.raise_errors:
-                    raise KeyError(name)
-                return {"error": record["error"]}
+                return self._fail(record, f"unknown tool {name}", KeyError(name))
             try:
                 result = self.tools[name](**args)
             except Exception as exc:
                 record["error"] = f"{type(exc).__name__}: {exc}"
                 raise
+        elif "error" in outcome:
+            error = outcome["error"]
+            return self._fail(
+                record, error["message"], ToolMockError(error["message"], error.get("type"))
+            )
+        else:
+            result = copy.deepcopy(outcome["returns"])  # the agent may mutate it
         record["result"] = _json_safe(result)
         return result
+
+    def _fail(self, record: dict[str, Any], message: str, exc: Exception) -> Any:
+        record["error"] = message
+        if self.raise_errors:
+            raise exc
+        return {"error": message}
 
     def wrap(self, name: str) -> Callable[..., Any]:
         """Return a drop-in callable for one tool, for DI or monkeypatching."""

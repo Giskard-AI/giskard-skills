@@ -114,8 +114,11 @@ RUN_LOCK = threading.Lock()  # patching module globals is process-wide
 
 def invoke(body: dict) -> dict:
     erp = REAL_ERP(copy.deepcopy(DEFAULT_DATA))  # fresh world, no real side effects
-    fakes = {name: (lambda n: lambda **a: json.loads(REAL_DISPATCH(n, a, erp)))(name)
-             for name in TOOL_NAMES}
+
+    def fake(name):
+        return lambda **args: json.loads(REAL_DISPATCH(name, args, erp))
+
+    fakes = {name: fake(name) for name in TOOL_NAMES}
     harness = ToolHarness(body.get("mocks"), fakes, raise_errors=False)  # ValueError -> 422
 
     def dispatch(name, args, _erp):
