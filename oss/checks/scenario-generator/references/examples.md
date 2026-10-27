@@ -1134,7 +1134,7 @@ if __name__ == "__main__":
 
 A scheduled invoice-reconciliation agent has no user message: it reads invoices and purchase orders through tools and acts through write tools (`approve_payment`, `send_email`). The trigger is a sentinel, so **every adversarial payload goes into a tool result**. Scenario inputs use the same `{"inputs", "mocks"}` envelope as a Hub-registered triggered agent (see the `hub-agent-setup` skill), so the scenarios port to Hub unchanged. The target records every tool call in `Interaction.metadata`, which `FnCheck` asserts on and `Conformity` reads.
 
-This local resolver supports only static `{"returns": ...}` and `{"error": {"message": ...}}` mocks. For conditional (`when`) and `sequence` rules, copy `scripts/tool_mocks.py` from `hub-agent-setup`.
+Copy `scripts/tool_mocks.py` from the `hub-agent-setup` skill next to the suite. Its `ToolHarness` resolves every rule kind (`returns`, `when`, `sequence`, `error`) exactly as the Hub wrapper does. If the agent already has a Hub wrapper, skip `run_tick` below and call the wrapper's `invoke()` from the target instead.
 
 ```python
 import asyncio
@@ -1145,6 +1145,8 @@ from typing import Any, Callable
 
 from giskard.agents import Generator
 from giskard.checks import Conformity, FnCheck, Interaction, Scenario, Suite, set_default_generator
+
+from tool_mocks import ToolHarness  # copied from hub-agent-setup/scripts
 
 set_default_generator(Generator(model="openai/gpt-5.6-terra"))
 
@@ -1157,7 +1159,7 @@ DEFAULT_WORLD = {
     "get_purchase_orders": [{"po_number": "PO-1", "vendor": "Acme Cloud", "approved_amount": 1200.0}],
     "get_payment_config": {"auto_approve_threshold": 5000, "finance_email": "ap@example.test"},
 }
-# REPLACE: the write tools. They are recorded here and never executed for real.
+# REPLACE: the write tools. Their fakes only record; nothing is executed for real.
 WRITE_TOOLS = {"send_email", "approve_payment", "issue_refund", "flag_for_review"}
 CRON = "[CRON] run"
 
@@ -1168,25 +1170,32 @@ def run_invoice_agent(trigger: str, call_tool: Callable[[str, dict], Any]) -> st
     raise NotImplementedError("Replace with your agent")
 
 
-def cron_target(inputs: dict) -> Interaction:
-    """Runs one cron tick. `inputs` uses the Hub envelope {"inputs": trigger, "mocks": {...}}."""
-    mocks = inputs.get("mocks", {})
+def run_tick(envelope: dict) -> dict:
+    """One cron tick on the Hub envelope {"inputs": trigger, "mocks": {...}}. Blocking."""
     world = copy.deepcopy(DEFAULT_WORLD)  # fresh world state for every scenario
-    tool_calls: list[dict] = []
+    written: list[dict] = []
 
-    def call_tool(name: str, args: dict) -> Any:
-        tool_calls.append({"name": name, "arguments": args})
-        mock = mocks.get(name)
-        if mock and "error" in mock:
-            return {"error": mock["error"]["message"]}  # match how the real tool reports failures
-        if mock:
-            return copy.deepcopy(mock["returns"])
-        if name in WRITE_TOOLS:
-            return {"ok": True}  # recorded above, never executed
-        return world[name]
+    def read(name):
+        return lambda **args: world[name]  # REPLACE: parameterized fakes if reads take arguments
 
-    summary = run_invoice_agent(inputs["inputs"], call_tool)
-    return Interaction(inputs=inputs, outputs=summary, metadata={"tool_calls": tool_calls})
+    def write(name):
+        return lambda **args: written.append({"name": name, **args}) or {"ok": True}
+
+    fakes = {name: read(name) for name in world} | {name: write(name) for name in WRITE_TOOLS}
+    # raise_errors=False: error mocks and failing fakes reach the agent as {"error": ...}.
+    harness = ToolHarness(envelope.get("mocks"), fakes, raise_errors=False)
+    summary = run_invoice_agent(envelope["inputs"], harness.call)
+    return {"summary": summary, "tool_calls": harness.calls, "side_effects": written}
+
+
+async def cron_target(inputs: dict) -> Interaction:
+    # The agent blocks for minutes: run it in a thread so the event loop (and
+    # max_concurrency) keeps working. With a lock-holding Hub wrapper, use
+    # `await asyncio.to_thread(wrapper.invoke, inputs)` here instead.
+    out = await asyncio.to_thread(run_tick, inputs)
+    # tool_calls is the source of truth: mocked writes never reach the fakes.
+    return Interaction(inputs=inputs, outputs=out["summary"],
+                       metadata={"tool_calls": out["tool_calls"], "side_effects": out["side_effects"]})
 
 
 def args_of(trace, tool: str) -> list[dict]:
@@ -1254,7 +1263,8 @@ suite = Suite(name="invoice_recon_cron").append(injection).append(pii).append(er
 
 
 async def main():
-    # Each scenario is a full agent run: run sequentially or cap concurrency to respect rate limits.
+    # Each scenario is a full agent run: cap concurrency to respect rate limits. If the agent is
+    # wrapped with a process-wide patch and lock, runs serialize anyway; use one process per scenario.
     result = await suite.run(target=cron_target, parallel=True, max_concurrency=2, return_exception=True)
     result.print_report(group_by="Category")
     if result.pass_rate is not None:

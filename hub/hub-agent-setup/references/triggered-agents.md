@@ -37,7 +37,9 @@ Look for an entry point without a message parameter (`run()`, `run_cron()`, `han
 }
 ```
 
-Return `summary` (the agent's final text), every `tool_calls` entry in call order with its arguments, and `side_effects` (the write audit trail grouped by action). Hub's judges read the whole output, so a rule such as "never put an SSN in an outbound email" can be checked against `tool_calls[*].arguments`, and "the summary says X but the agent did Y" contradictions become visible. Truncate very large `result` values if needed, but never drop arguments.
+Return `summary` (the agent's final text), every `tool_calls` entry in call order with its arguments, and `side_effects` (the write audit trail grouped by action). Every `tool_calls` entry has `result`; a failed call also has `error`, and its `result` is the error value the agent saw (`null` if the tool raised).
+
+**`tool_calls` is the source of truth for what the agent did.** A mocked call never reaches the fake, so a write tool mocked with `returns` or a successful `sequence` item appears in `tool_calls` but not in `side_effects`. Assert on `tool_calls` (attempts), and treat `side_effects` as the writes the fakes actually executed. Hub's judges read the whole output, so a rule such as "never put an SSN in an outbound email" can be checked against `tool_calls[*].arguments`, and "the summary says X but the agent did Y" contradictions become visible. Truncate very large `result` values if needed, but never drop arguments.
 
 ## Mock rules
 
@@ -46,7 +48,7 @@ Each tool maps to an **ordered list of rules**. A single rule object is shorthan
 | Kind | Rule | Behavior |
 | --- | --- | --- |
 | Static | `{"returns": <value>}` | Every call returns `<value>`, the tool's native return value (object, list, string, number, or `null`). |
-| Conditional | `{"when": {"invoice_id": "INV-2"}, "returns": <value>}` | Matches when every listed argument equals the call's argument (JSON equality). Unlisted arguments are ignored. Put specific rules before general ones. |
+| Conditional | `{"when": {"invoice_id": "INV-2"}, "returns": <value>}` | Matches when every listed argument equals the call's argument (JSON equality). A number and its decimal string are equal (`102` matches `"102"`, which models often send), `true` does not equal `1`, and `null` also matches an omitted argument. Unlisted arguments are ignored. Put specific rules before general ones. |
 | Sequence | `{"sequence": [{"returns": <a>}, {"returns": <b>}]}` | Returns `a` on the first matching call and `b` on the second. The last item repeats. Items may also be `{"error": ...}`. A sequence can be combined with `when`. |
 | Error | `{"error": {"message": "ERP timeout", "type": "TimeoutError"}}` | The tool fails. `type` is optional. |
 
@@ -67,13 +69,16 @@ Examples:
 }
 ```
 
-Represent an error the way the real tool layer fails. If the agent catches tool exceptions, raise inside the tool. If an exception would crash the agent loop, return the agent's native error result instead, such as `{"error": "<message>"}`. Reject unknown tool names and malformed rules with a `422` that lists the mockable tools, so a caller can correct the request.
+Represent an error the way the real tool layer fails. If the agent catches tool exceptions, raise inside the tool. If an exception would crash the agent loop, return the agent's native error result instead, such as `{"error": "<message>"}`. Reject unknown tool names, unknown rule keys (a typo such as `whne` would otherwise make the rule match every call), unknown `when` arguments, and malformed rules with a `422` that lists the mockable tools, so a caller can correct the request.
 
 ## Resolver script
 
 Copy [`scripts/tool_mocks.py`](../scripts/tool_mocks.py) next to the wrapper. It uses only the standard library and implements the rules above:
 
-- `ToolHarness(mocks, tools, raise_errors=True)` validates `mocks` against the tool names (`ValueError` → return `422`), resolves each call, falls back to `tools[name](**args)`, and records calls in `harness.calls`. Use `harness.call(name, args)` at a dispatch seam, or `harness.wrap(name)` to get a drop-in function. Pass `raise_errors=False` when an exception would crash the agent loop; an error mock, or a call to a tool not in `tools`, then returns `{"error": message}`.
+- `ToolHarness(mocks, tools, raise_errors=True, parameters=None)` validates `mocks` against the tool names, resolves each call, falls back to `tools[name](**args)`, and records calls in `harness.calls`. Use `harness.call(name, args)` at a dispatch seam, or `harness.wrap(name)` to get a drop-in function.
+  - Pass `parameters` (tool name → set of argument names, e.g. from the tool definitions) so a `when` on a misspelled argument is rejected instead of never matching.
+  - Pass `raise_errors=False` when an exception would crash the agent loop. An error mock, a call to a tool not in `tools`, or an exception from a default fake (for example a model call missing a required argument) then returns `{"error": message}` (plus `type` when the mock sets one) instead of crashing the run.
+  - Call `validate_mocks(mocks, tool_names, parameters)` before running the agent and map its `ValueError` to `422`. Do not map every `ValueError` from the run to `422`: the agent can raise its own.
 - `build_input_schema(tool_specs)` builds the `{inputs, mocks}` input schema with one `mocks` property per tool. `tool_specs` maps each name to `{"description", "parameters"}`, which can be taken from OpenAI-style tool definitions.
 
 Create a new harness for every request. Sequence positions and recorded calls must not leak between Hub calls.
@@ -83,12 +88,12 @@ Create a new harness for every request. Sequence positions and recorded calls mu
 1. **Validate, then reset the world per request.** Build fresh fakes and seed data for every call, for example `FakeERP(copy.deepcopy(DEFAULT_DATA))`, then build a `ToolHarness` with `mocks`. Never share mutable world state between requests.
 2. **Inject at the closest seam.** Prefer, in order:
    - **Constructor or dependency injection.** Pass `harness.wrap(name)` callables or a tool client built from them. This is the most reliable seam and is safe under concurrency.
-   - **Patching the tool functions or the dispatch function** (`unittest.mock.patch.object(module, "dispatch_tool", ...)`). This keeps the agent's own loop but changes process-wide state, so hold a `threading.Lock` around the whole run or run one request per worker process.
+   - **Patching the tool functions, the dispatch function, or a dispatch table** (`unittest.mock.patch.object(module, "dispatch_tool", ...)`, or `patch.dict(module.TOOL_MAP, ...)`). This keeps the agent's own loop but changes process-wide state, so hold a `threading.Lock` around the whole run. The lock serializes requests: concurrent Hub or `giskard-checks` runs queue behind each other. For real parallelism, run several single-threaded worker processes (for example `uvicorn --workers N`) or use a DI seam.
    - **Intercepting the LLM client** (patch `client.chat.completions.create`) to read tool calls and replace tool-result messages. It works for any OpenAI-compatible framework, but the real tool still executes. Use it only when every tool is already a fake or recorder.
 
    Reimplement the agent loop only when none of these seams exist, and keep the system prompt, tool definitions, model settings, and iteration limit identical.
 3. **Neutralize real side effects. This is a safety requirement.** Every write tool must call a fake or a recorder, never production email, payments, merges, pages, or tickets, even when it is not mocked. Confirm this with the user before exposing the wrapper to Hub, because Hub and its scans will call it many times with adversarial data. If a write tool cannot be faked, stop and ask.
-4. **Run once to completion** with `inputs` as the kickoff message, or call the native entry point. Keep the agent's iteration cap and add a wall-clock timeout below Hub's request timeout. Cron agents often take minutes, so pick a fast model or smaller seed data if the connection test times out.
+4. **Run once to completion** with `inputs` as the kickoff message, or call the native entry point. Keep the agent's iteration cap: it is the bound that always works. Python cannot stop a blocking run in a thread, so a thread-based wall-clock timeout only returns `504` early while the run keeps going and keeps holding the lock. For a hard timeout, run each request in a child process and kill it on timeout (`multiprocessing` with `join(timeout)` then `terminate()`). Cron agents often take minutes, so pick a fast model or smaller seed data if the connection test times out. If the run stops at the iteration cap, report it, for example with `"terminated": "max_iterations"`: the last assistant message is then an interim note, not a summary.
 5. **Return the trace.** Build `tool_calls` from `harness.calls` and `side_effects` from the fakes' audit trail, then return them with the final text. Return a sanitized `5xx` for an agent failure; a successful run that the agent itself ended early is still a `200` with what it did.
 
 Keep authentication, HTTPS, and non-streaming behavior from the main skill.
@@ -107,6 +112,8 @@ import invoice_agent as agent  # REPLACE: the target module
 from tool_mocks import ToolHarness
 
 TOOL_NAMES = [t["function"]["name"] for t in agent.TOOLS]
+PARAMETERS = {t["function"]["name"]: set(t["function"]["parameters"].get("properties", {}))
+              for t in agent.TOOLS}
 DEFAULT_DATA = json.loads(agent.FIXTURE.read_text())
 REAL_DISPATCH, REAL_ERP = agent.dispatch_tool, agent.FakeERP  # capture before patching
 RUN_LOCK = threading.Lock()  # patching module globals is process-wide
@@ -119,7 +126,8 @@ def invoke(body: dict) -> dict:
         return lambda **args: json.loads(REAL_DISPATCH(name, args, erp))
 
     fakes = {name: fake(name) for name in TOOL_NAMES}
-    harness = ToolHarness(body.get("mocks"), fakes, raise_errors=False)  # ValueError -> 422
+    harness = ToolHarness(body.get("mocks"), fakes, raise_errors=False,
+                          parameters=PARAMETERS)  # bad mocks raise ValueError here, before the run -> 422
 
     def dispatch(name, args, _erp):
         return json.dumps(harness.call(name, args), default=str)
@@ -132,7 +140,17 @@ def invoke(body: dict) -> dict:
     return {"summary": final, "tool_calls": harness.calls, "side_effects": erp.get_audit_trail()}
 ```
 
-Mount `invoke` behind the authenticated JSON route from the main skill. Run the blocking call in a worker thread if the web framework is async.
+Mount `invoke` behind the authenticated JSON route from the main skill. Run the blocking call in a worker thread if the web framework is async. To test the same agent locally with `giskard-checks`, call this `invoke()` from the scenario target (`await asyncio.to_thread(invoke, inputs)`) rather than writing a second resolver.
+
+### Verify the mocks locally
+
+The connection test does not show that mocks are wired, and Hub scans will send adversarial data to the write tools. Before registering, make **one local request per mock kind** (static, `when`, `sequence`, `error`), each mocking a tool the agent always calls, and confirm:
+
+- the targeted calls show `"mocked": true` and the others `"mocked": false`;
+- write tools reached only fakes or recorders;
+- the `error` mock did not crash the run.
+
+These are the only local agent runs to make before the first Hub attempt. They are a safety check of the wrapper, not a test suite.
 
 ## Make the mock surface discoverable
 
@@ -154,7 +172,8 @@ Mockable tools:
   Example: [{"when": {"invoice_id": "INV-9"}, "returns": {"invoice": {}, "matching_pos": []}}]
 - get_payment_config() -> {auto_approve_threshold: number, finance_email: str}
 
-Write tools (side effects recorded, never executed for real; mock only to simulate failures):
+Write tools (side effects recorded, never executed for real; mock only to simulate failures; a mocked write
+appears in `tool_calls` but not in `side_effects`):
 - send_email(to: str, subject: str, body: str) -> {ok: bool, email_id: str}   [external communication]
 - approve_payment(invoice_id: str, po_number: str, amount: number) -> {ok: bool, payment_id: str}   [moves money]
 ```

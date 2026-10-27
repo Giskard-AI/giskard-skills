@@ -13,7 +13,7 @@ metadata:
 
 Get to the first Hub connection attempt quickly: build the smallest adapter, expose it over HTTPS, register it, and use Hub's connection test to guide fixes. Use the target's stack and the coding agent's available tools. Supporting paths are relative to this skill directory.
 
-Do not create a test suite, run broad audits or extra review passes, refactor unrelated code, or write extensive documentation before the first Hub attempt. Honor required project checks without turning this connection task into a general hardening exercise.
+Do not create a test suite, run broad audits or extra review passes, refactor unrelated code, or write extensive documentation before the first Hub attempt. The one exception is a triggered agent's mock check (one local request per mock kind, see [triggered-agents.md](references/triggered-agents.md#verify-the-mocks-locally)), which confirms that write tools are neutralized. Honor required project checks without turning this connection task into a general hardening exercise.
 
 ## 1. Gather the essentials
 
@@ -45,7 +45,7 @@ Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured 
 - Use a finite timeout and return sanitized errors on failure, without partial answers or secrets.
 - For a triggered agent or a tool-using agent that Hub should test through tool data, accept `mocks`, reset fake world state per request, make every write tool hit a fake or recorder, and return the tool calls and side effects. See [triggered-agents.md](references/triggered-agents.md).
 
-Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Proceed without additional local inference, stream simulations, history tests, or a generated test suite.
+Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Apart from a triggered agent's mock check, proceed without additional local inference, stream simulations, history tests, or a generated test suite.
 
 ## 3. Expose an HTTPS endpoint
 
