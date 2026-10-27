@@ -4,7 +4,7 @@ description: Connect a local or remote AI agent to Giskard Hub through an authen
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.1.0
+  version: 1.2.0
   category: integration
   tags: [giskard, hub, agent, integration, https, tunnel]
 ---
@@ -19,7 +19,7 @@ Do not create a test suite, run broad audits or extra review passes, refactor un
 
 Identify the target agent first. A project can contain several agents, for example separate entry points, services, graphs, or chains. If the user did not name the target and more than one candidate exists, list the candidates briefly with their locations and ask which one to register. Never pick one yourself. Continue without asking only when the user named the target or the project contains a single candidate.
 
-Locate the target's callable/API, input/output shape, streaming behavior, conversation state, and whether it is already deployed. Infer its name, description, and supported languages. Ask only for missing connection details:
+Locate the target's callable/API, input/output shape, streaming behavior, conversation state, and whether it is already deployed. For conversation state, find where the history lives between turns. The caller resends it, the target stores it under a session or thread ID, or there is none. This decides the Interaction Context in steps 2 and 4. Infer its name, description, and supported languages. Ask only for missing connection details:
 
 - **Hub URL**.
 - **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
@@ -37,12 +37,14 @@ Choose the hosting path in step 3 first, because it decides where the wrapper ru
 
 Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured schemas and multi-turn bindings, following the [Hub contract](https://docs.giskard.ai/hub/ui/setup/agents). For Chat, publish the canonical schemas verbatim; keep stricter runtime validation separate. Reuse existing dependencies where practical. If a deployed target already has an authenticated HTTPS endpoint that meets this contract, skip the wrapper and register that endpoint.
 
+For a multi-turn target, choose `auto_bindings` (the Hub Interaction Context) from where the target keeps history, not from the Hub default. When the native history format or session handling differs from Hub's, translate it inside the wrapper as described in [Multi-turn targets](references/wrapper-contracts.md#multi-turn-targets).
+
 - Implement a JSON `POST` route, e.g. `/giskard/invoke`, around the actual target, with matching input/output schemas.
 - Require `X-API-Key` or equivalent authentication before invoking the target. Refuse startup with an empty configured key. Inside the target's own app, disable only the wrapper route instead, so the target keeps running. Use constant-time comparison and reject missing/wrong keys with `401` or `403`.
 - Return one complete `application/json` response. **Never stream to Hub.** Prefer a non-streaming call; otherwise consume the target's stream to completion and assemble the final answer/object. Preserve history or per-conversation state where supported.
 - Use a finite timeout and return sanitized errors on failure, without partial answers or secrets.
 
-Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Proceed without additional local inference, stream simulations, history tests, or a generated test suite.
+Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Proceed without additional local inference, stream simulations, local history tests, or a generated test suite. Step 4 checks multi-turn behavior through Hub.
 
 ## 3. Expose an HTTPS endpoint
 
@@ -73,8 +75,9 @@ Use Python 3.10+ and the **`giskard-hub` SDK**, or the Hub MCP tools when Python
 1. Call `hub.agents.create` (MCP: `create_agent`) with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead.
 2. Retain the returned ID and **immediately call `hub.agents.test_connection`** (MCP: `test_agent_connection`) with that ID, URL, project, headers, and input schema. Hub makes the request to the wrapper; local DNS trouble reaching the tunnel does not establish that Hub cannot reach it.
 3. Inspect the actual result and error details. If it fails, fix the reported URL, credentials, adapter, schema, or network issue and re-test the same registration. Do not recreate agents or perform speculative refactoring. Stop with a concrete blocker if credentials, permissions, or connectivity cannot be obtained.
+4. For a multi-turn target, run the [two-turn check](references/hub-sdk.md#multi-turn-check) after the connection test passes. The connection test sends one request, so it cannot show that two requests continue one conversation on the target's side. If the check fails, fix the wrapper or the `auto_bindings` of the same agent, then run the check again.
 
-The default verification is this Hub connection test. Use `generate_completion`, history tests, or focused regression tests only when requested or needed to investigate a specific failure. Keep authentication and TLS verification enabled throughout.
+The default verification is the Hub connection test, plus the two-turn check for multi-turn targets. Use other `generate_completion` calls or focused regression tests only when requested or needed to investigate a specific failure. Keep authentication and TLS verification enabled throughout.
 
 ## 5. Finish
 
