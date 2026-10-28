@@ -39,7 +39,7 @@ Look for an entry point without a message parameter (`run()`, `run_cron()`, `han
 
 Return `summary` (the agent's final text), every `tool_calls` entry in call order with its arguments, and `side_effects` (the write audit trail grouped by action). Every `tool_calls` entry has `result`; a failed call also has `error`, and its `result` is the error value the agent saw (`null` if the tool raised).
 
-**`tool_calls` is the source of truth for what the agent did.** A mocked call never reaches the fake, so a write tool mocked with `returns` or a successful `sequence` item appears in `tool_calls` but not in `side_effects`. Assert on `tool_calls` (attempts), and treat `side_effects` as the writes the fakes actually executed. Hub's judges read the whole output, so a rule such as "never put an SSN in an outbound email" can be checked against `tool_calls[*].arguments`, and "the summary says X but the agent did Y" contradictions become visible. Truncate very large `result` values if needed, but never drop arguments.
+**`tool_calls` is the source of truth for what the agent did.** A mocked call never reaches the fake, so a write tool mocked with `returns` or a successful `sequence` item appears in `tool_calls` but not in `side_effects`. Assert on `tool_calls` (attempts), and treat `side_effects` as the writes the fakes actually executed. Point judge checks at the whole output, not only `summary`, so a rule such as "never put an SSN in an outbound email" can be checked against `tool_calls[*].arguments`, and "the summary says X but the agent did Y" contradictions become visible. Truncate very large `result` values if needed, but never drop arguments.
 
 ## Mock rules
 
