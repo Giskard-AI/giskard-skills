@@ -1,19 +1,19 @@
 ---
 name: hub-agent-setup
-description: Connect a local or remote AI agent to Giskard Hub through an authenticated, non-streaming HTTPS endpoint. Use when a user asks to connect, integrate, or register their agent with the Hub. Build a minimal wrapper, deploy or tunnel it, and use the Hub connection test (SDK or MCP) to guide any fixes.
+description: Connect a local or remote AI agent to Giskard Hub through an authenticated, non-streaming HTTPS endpoint. Use when a user asks to connect, integrate, or register their agent with the Hub, including triggered (cron, webhook, event) agents. Build a minimal wrapper, deploy or tunnel it, and use the Hub connection test (SDK or MCP) to guide any fixes.
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.1.0
+  version: 1.2.0
   category: integration
-  tags: [giskard, hub, agent, integration, https, tunnel]
+  tags: [giskard, hub, agent, integration, https, tunnel, cron, tool-mocks]
 ---
 
 # Hub Agent Setup
 
 Get to the first Hub connection attempt quickly: build the smallest adapter, expose it over HTTPS, register it, and use Hub's connection test to guide fixes. Use the target's stack and the coding agent's available tools. Supporting paths are relative to this skill directory.
 
-Do not create a test suite, run broad audits or extra review passes, refactor unrelated code, or write extensive documentation before the first Hub attempt. Honor required project checks without turning this connection task into a general hardening exercise.
+Do not create a test suite, run broad audits or extra review passes, refactor unrelated code, or write extensive documentation before the first Hub attempt. The one exception is a triggered agent's mock check (one local request per mock kind, see [triggered-agents.md](references/triggered-agents.md#verify-the-mocks-locally)), which confirms that write tools are neutralized. Honor required project checks without turning this connection task into a general hardening exercise.
 
 ## 1. Gather the essentials
 
@@ -24,6 +24,8 @@ Locate the target's callable/API, input/output shape, streaming behavior, conver
 - **Hub URL**.
 - **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
 - **Hub project name or ID**.
+
+If the target has no user message (a cron job, scheduler, webhook, or queue worker that reads state through tools and acts through write tools), it is a **triggered agent**. Follow [triggered-agents.md](references/triggered-agents.md) as well: register it as Structured with a `{"trigger", "mocks"}` envelope and document its mockable tools in the Hub description. For a hybrid chat and cron agent, ask which mode to register, or register both.
 
 Use the `giskard-hub` Python SDK when Python 3.10+ is available. Without Python, connect to the Giskard Hub MCP server and use its tools for the same steps. See [hub-sdk.md](references/hub-sdk.md#without-python-hub-mcp).
 
@@ -41,8 +43,9 @@ Use [wrapper-contracts.md](references/wrapper-contracts.md) for Chat/Structured 
 - Require `X-API-Key` or equivalent authentication before invoking the target. Refuse startup with an empty configured key. Inside the target's own app, disable only the wrapper route instead, so the target keeps running. Use constant-time comparison and reject missing/wrong keys with `401` or `403`.
 - Return one complete `application/json` response. **Never stream to Hub.** Prefer a non-streaming call; otherwise consume the target's stream to completion and assemble the final answer/object. Preserve history or per-conversation state where supported.
 - Use a finite timeout and return sanitized errors on failure, without partial answers or secrets.
+- For a triggered agent or a tool-using agent that Hub should test through tool data, accept `mocks`, reset fake world state per request, make every write tool hit a fake or recorder, and return the tool calls and side effects. See [triggered-agents.md](references/triggered-agents.md).
 
-Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Proceed without additional local inference, stream simulations, history tests, or a generated test suite.
+Start the wrapper and make **one cheap request with an invalid key** to confirm rejection before exposing it. For a remote wrapper, you can send this request to the deployed HTTPS URL after the deploy instead. This does not invoke the model. Apart from a triggered agent's mock check, proceed without additional local inference, stream simulations, history tests, or a generated test suite.
 
 ## 3. Expose an HTTPS endpoint
 
@@ -70,7 +73,7 @@ Expose only the wrapper service. Append its invocation path to the **actual HTTP
 
 Use Python 3.10+ and the **`giskard-hub` SDK**, or the Hub MCP tools when Python is unavailable. See [hub-sdk.md](references/hub-sdk.md) for the short example, the MCP tool names, and authoritative docs.
 
-1. Call `hub.agents.create` (MCP: `create_agent`) with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead.
+1. Call `hub.agents.create` (MCP: `create_agent`) with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead. For a triggered agent, append the "Mockable tools" section to `description` as shown in [triggered-agents.md](references/triggered-agents.md#make-the-mock-surface-discoverable).
 2. Retain the returned ID and **immediately call `hub.agents.test_connection`** (MCP: `test_agent_connection`) with that ID, URL, project, headers, and input schema. Hub makes the request to the wrapper; local DNS trouble reaching the tunnel does not establish that Hub cannot reach it.
 3. Inspect the actual result and error details. If it fails, fix the reported URL, credentials, adapter, schema, or network issue and re-test the same registration. Do not recreate agents or perform speculative refactoring. Stop with a concrete blocker if credentials, permissions, or connectivity cannot be obtained.
 

@@ -33,7 +33,7 @@ For LiteLLM, install `giskard[litellm]` (or `giskard[litellm,scan]` for scans) a
     <tr>
       <td>hub-agent-setup</td>
       <td><code>npx skills add Giskard-AI/giskard-skills --skill hub-agent-setup</code></td>
-      <td>Use when a user wants to connect a local or remote agent to Giskard Hub. Creates an authenticated HTTPS endpoint with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and uses the Hub connection test (SDK or MCP) to guide any fixes.</td>
+      <td>Use when a user wants to connect a local or remote agent, including a triggered (cron, webhook, event) agent, to Giskard Hub. Creates an authenticated HTTPS endpoint with complete, non-streaming Chat or Structured responses, deploys it remotely or opens a local tunnel, and uses the Hub connection test (SDK or MCP) to guide any fixes.</td>
     </tr>
     <tr>
       <td>scenario-generator</td>
