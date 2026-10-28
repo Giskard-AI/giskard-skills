@@ -88,7 +88,7 @@ STRUCTURED_OUTPUT_SCHEMA = {
 
 Example request: `{"ticket": "My invoice was charged twice."}`. Example response: `{"queue": "billing", "confidence": 0.95}`. Replace these example fields with the target's actual interface. Preserve structured types; do not JSON-encode an object into a string or invent a chat interface that changes the target's behavior.
 
-For an agent with no user message (cron, webhook, or queue worker), or one whose risky inputs arrive through tool results, use the `{"inputs", "mocks"}` envelope in [triggered-agents.md](triggered-agents.md).
+For an agent with no user message (cron, webhook, or queue worker), or one whose risky inputs arrive through tool results, use the `{"trigger", "mocks"}` envelope in [triggered-agents.md](triggered-agents.md).
 
 ## Multi-turn bindings
 

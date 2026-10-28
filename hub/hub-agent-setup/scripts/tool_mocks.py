@@ -1,4 +1,4 @@
-"""Resolve the `mocks` part of a `{"inputs": ..., "mocks": {...}}` request.
+"""Resolve the `mocks` part of a `{"trigger": ..., "mocks": {...}}` request.
 
 Copy this file next to the wrapper. It uses only the standard library.
 See references/triggered-agents.md for the request format and how to wire it.
@@ -249,9 +249,9 @@ def rules_schema(parameters: Mapping[str, Any] | None = None) -> dict[str, Any]:
 
 def build_input_schema(
     tool_specs: Mapping[str, Mapping[str, Any]],
-    inputs_schema: Mapping[str, Any] | None = None,
+    trigger_schema: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Structured input schema `{inputs, mocks}` with one `mocks` property per tool.
+    """Structured input schema `{trigger, mocks}` with one `mocks` property per tool.
 
     `tool_specs` maps tool name to `{"description": str, "parameters": <JSON Schema>}`,
     for example taken from the agent's OpenAI-style tool definitions.
@@ -264,12 +264,12 @@ def build_input_schema(
     return {
         "type": "object",
         "properties": {
-            "inputs": dict(inputs_schema or {"type": "string"}),
+            "trigger": dict(trigger_schema or {"type": "string"}),
             "mocks": {
                 "type": "object",
                 "properties": mock_properties,
                 "additionalProperties": False,
             },
         },
-        "required": ["inputs"],
+        "required": ["trigger"],
     }

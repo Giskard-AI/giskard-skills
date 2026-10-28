@@ -12,7 +12,7 @@ Look for an entry point without a message parameter (`run()`, `run_cron()`, `han
 
 ```json
 {
-  "inputs": "[CRON] run",
+  "trigger": "[CRON] run",
   "mocks": {
     "get_payment_config": {"returns": {"auto_approve_threshold": 5000, "finance_email": "ap@example.com"}},
     "match_invoice_to_po": [
@@ -23,7 +23,7 @@ Look for an entry point without a message parameter (`run()`, `run_cron()`, `han
 }
 ```
 
-- `inputs` is the trigger: a sentinel such as `"[CRON] run"`, the event or webhook payload, or the user message for a chat agent with tools. Pass it as the kickoff message or to the native entry point. Use an object schema for `inputs` when the event is structured.
+- `trigger` is the kickoff: a sentinel such as `"[CRON] run"`, the event or webhook payload, or the user message for a chat agent with tools. Pass it as the kickoff message or to the native entry point. Use an object schema for `trigger` when the event is structured.
 - `mocks` is optional. Its keys are tool names. Any tool may be mocked. A tool that is not listed, or a call that no rule matches, uses the agent's default fake or seed data.
 
 ```json
@@ -79,7 +79,7 @@ Copy [`scripts/tool_mocks.py`](../scripts/tool_mocks.py) next to the wrapper. It
   - Pass `parameters` (tool name → set of argument names, e.g. from the tool definitions) so a `when` on a misspelled argument is rejected instead of never matching.
   - Pass `raise_errors=False` when an exception would crash the agent loop. An error mock, a call to a tool not in `tools`, or an exception from a default fake (for example a model call missing a required argument) then returns `{"error": message}` (plus `type` when the mock sets one) instead of crashing the run.
   - Call `validate_mocks(mocks, tool_names, parameters)` before running the agent and map its `ValueError` to `422`. Do not map every `ValueError` from the run to `422`: the agent can raise its own.
-- `build_input_schema(tool_specs)` builds the `{inputs, mocks}` input schema with one `mocks` property per tool. `tool_specs` maps each name to `{"description", "parameters"}`, which can be taken from OpenAI-style tool definitions.
+- `build_input_schema(tool_specs)` builds the `{trigger, mocks}` input schema with one `mocks` property per tool. `tool_specs` maps each name to `{"description", "parameters"}`, which can be taken from OpenAI-style tool definitions.
 
 Create a new harness for every request. Sequence positions and recorded calls must not leak between Hub calls.
 
@@ -93,7 +93,7 @@ Create a new harness for every request. Sequence positions and recorded calls mu
 
    Reimplement the agent loop only when none of these seams exist, and keep the system prompt, tool definitions, model settings, and iteration limit identical.
 3. **Neutralize real side effects. This is a safety requirement.** Every write tool must call a fake or a recorder, never production email, payments, merges, pages, or tickets, even when it is not mocked. Confirm this with the user before exposing the wrapper to Hub, because Hub and its scans will call it many times with adversarial data. If a write tool cannot be faked, stop and ask.
-4. **Run once to completion** with `inputs` as the kickoff message, or call the native entry point. Keep the agent's iteration cap: it is the bound that always works. Python cannot stop a blocking run in a thread, so a thread-based wall-clock timeout only returns `504` early while the run keeps going and keeps holding the lock. For a hard timeout, run each request in a child process and kill it on timeout (`multiprocessing` with `join(timeout)` then `terminate()`). Cron agents often take minutes, so pick a fast model or smaller seed data if the connection test times out. If the run stops at the iteration cap, report it, for example with `"terminated": "max_iterations"`: the last assistant message is then an interim note, not a summary.
+4. **Run once to completion** with `trigger` as the kickoff message, or call the native entry point. Keep the agent's iteration cap: it is the bound that always works. Python cannot stop a blocking run in a thread, so a thread-based wall-clock timeout only returns `504` early while the run keeps going and keeps holding the lock. For a hard timeout, run each request in a child process and kill it on timeout (`multiprocessing` with `join(timeout)` then `terminate()`). Cron agents often take minutes, so pick a fast model or smaller seed data if the connection test times out. If the run stops at the iteration cap, report it, for example with `"terminated": "max_iterations"`: the last assistant message is then an interim note, not a summary.
 5. **Return the trace.** Build `tool_calls` from `harness.calls` and `side_effects` from the fakes' audit trail, then return them with the final text. Return a sanitized `5xx` for an agent failure; a successful run that the agent itself ended early is still a `200` with what it did.
 
 Keep authentication, HTTPS, and non-streaming behavior from the main skill.
@@ -134,7 +134,7 @@ def invoke(body: dict) -> dict:
 
     with RUN_LOCK, patch.object(agent, "dispatch_tool", dispatch), \
             patch.object(agent, "FakeERP", lambda _data: erp):
-        result = agent.run_agent()  # the kickoff message is built in; dispatch on body["inputs"] if needed
+        result = agent.run_agent()  # the kickoff message is built in; dispatch on body["trigger"] if needed
     final = next((m.get("content") for m in reversed(result["trace"])
                   if m["role"] == "assistant" and m.get("content")), "")
     return {"summary": final, "tool_calls": harness.calls, "side_effects": erp.get_audit_trail()}
@@ -159,7 +159,7 @@ Hub callers such as automated scenario generators cannot read the code, so they 
 **1. Agent `description` (primary).** Keep the usual one-paragraph description, then append:
 
 ```markdown
-Triggered agent (no user message). Send `inputs: "[CRON] run"`. Override tool results with
+Triggered agent (no user message). Send `trigger: "[CRON] run"`. Override tool results with
 `mocks: {tool_name: [rule, ...]}`. Rules are checked in order and the first match wins. A rule has an
 optional `when` (exact argument values) and one of `returns` (the value), `sequence`
 (a list of `{returns}`/`{error}`, one per call, last repeats), or `error` (`{"message", "type"}`).
