@@ -125,4 +125,4 @@ On failure, surface the relevant error with secrets redacted, fix that specific 
 
 A local DNS failure for the tunnel URL need not block registration: the SDK calls Hub, which calls the wrapper from its own network. Attempt the Hub test before adding DNS workarounds or more client-side probes.
 
-Apart from the multi-turn check, use `hub.agents.generate_completion(agent_id, input=...)` only for a requested playground check or to investigate a specific response or context issue. Inspect its `error` and `output`.
+Apart from the multi-turn and tool-call checks, use `hub.agents.generate_completion(agent_id, input=...)` only for a requested playground check or to investigate a specific response or context issue. Inspect its `error` and `output`.

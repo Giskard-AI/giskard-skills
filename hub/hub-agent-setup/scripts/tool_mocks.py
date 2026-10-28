@@ -131,6 +131,7 @@ class ToolHarness:
 
     Create one instance per request. `tools` maps every tool name the agent can
     call to the default fake implementation, called as `fn(**arguments)`.
+    With `mocks=None` and the real tools, it only records the calls.
     With `raise_errors=False`, an `error` mock, a call to an unknown tool, or an
     exception from a default fake (for example a missing argument) returns
     `{"error": message}` as the tool result instead of raising, for agents that
