@@ -111,9 +111,65 @@ Hub keeps each conversation and builds every request from the agent's `auto_bind
 
 Combine an aggregate and a forward binding only when the target needs both the history and an ID. Step 4 of the skill verifies the choice with the [two-turn check](hub-sdk.md#multi-turn-check).
 
+## Tool calls
+
+The tool calls of an agent are its main attack surface. A judge that sees only the final answer cannot see an unsafe tool argument, or an injected instruction that came back in a tool result. When the wrapper can read the tool calls of a run, return them so that Hub can check them.
+
+If the target output already includes its tool calls, return them in the shape below. Otherwise, get the user's approval first (step 1 of the skill), because Hub then receives tool arguments and results that the target does not expose by default. Ask only when the code of the target is in the workspace and you can get the calls with a small change. When the wrapper reaches the target only through an endpoint that does not return its tool calls, Hub cannot see them. Do not change or redeploy a remote target only for this. In step 5, tell the user which change in the target would expose them.
+
+For Chat, return the calls in `metadata.tool_calls`. The canonical schemas do not change, because `metadata` is a free object. For Structured, declare an optional `tool_calls` array (and `agent_messages` for a [multi-agent target](#multi-agent-targets)) in the output schema. A triggered agent already returns `tool_calls`. Reporting the calls does not change the tool results. To let Hub also choose the tool results, use the mocks envelope in [triggered-agents.md](triggered-agents.md).
+
+```json
+{
+  "response": {"role": "assistant", "content": "I cannot refund this order right now. A colleague will contact you."},
+  "metadata": {
+    "tool_calls": [
+      {"name": "get_order", "arguments": {"order_id": "A-1001"}, "result": {"status": "delivered", "total": 34.9}},
+      {"name": "issue_refund", "arguments": {"order_id": "A-1001", "amount": 34.9}, "result": null, "error": "payment gateway unavailable"}
+    ]
+  }
+}
+```
+
+List the calls in call order. Each entry has `name`, `arguments` as a JSON object, and `result`, which is the value that the agent received. A failed call also has `error`, and its `result` is the error value that the agent saw, or `null` if the tool raised. This is the same shape as the `tool_calls` of a triggered agent.
+
+Get the calls from the closest source:
+
+1. **The run result.** Most frameworks already return the calls, for example the message list of an OpenAI-style loop, LangGraph `result["messages"]`, OpenAI Agents SDK `result.new_items`, LangChain `AgentExecutor(return_intermediate_steps=True)`, or Pydantic AI `result.new_messages()`. Pair each call with its result by the tool-call ID. Parse arguments that arrive as a JSON string.
+2. **A framework callback or hook**, such as LangChain callbacks or OpenAI Agents SDK run hooks.
+3. **A recorder at the tool seam.** `ToolHarness(None, tools)` from [`scripts/tool_mocks.py`](../scripts/tool_mocks.py) runs the real tools and records each call in `harness.calls`. Use the seams and lock rules in [triggered-agents.md](triggered-agents.md#wrapper-responsibilities).
+
+Return only the calls of the current request. A target that stores the conversation can return the messages of earlier turns too, so keep only the messages that this request added. Truncate a very large `result` if necessary, but never drop a call or its arguments. Remove credentials, such as API keys or tokens, from arguments and results. Do not add system prompts or raw model requests. They are fixed configuration, not behavior, and a judge that reads the whole output can report them as a leak.
+
+### Multi-agent targets
+
+When the target is the entry point of several agents, the exchanges between the agents are attack surface too. An injection can pass from one agent to the next, and a handoff can give an attacker an agent with more powerful tools. Return the whole run, not only the steps of the entry agent:
+
+- Add `agent`, the name of the agent that made the call, to each `tool_calls` entry. Include the calls that sub-agents make.
+- Keep handoffs and delegations as entries. Most frameworks implement them as tool calls, such as `transfer_to_refunds` or an agent used as a tool. For a delegation, `arguments` is what the caller sent and `result` is what the sub-agent returned.
+- Return the other messages that agents produce but the user does not see in `metadata.agent_messages`, in order. Examples are the reply of an agent before it hands off, and the final reply of a sub-agent. When an agent is used as a tool, its reply is already the `result` of that call, so do not repeat it.
+
+```json
+"metadata": {
+  "tool_calls": [
+    {"agent": "supervisor", "name": "transfer_to_refunds", "arguments": {}, "result": "Successfully transferred to refunds"},
+    {"agent": "refunds", "name": "issue_refund", "arguments": {"order_id": "A-1002", "amount": 249}, "result": {"ok": true}}
+  ],
+  "agent_messages": [{"agent": "refunds", "content": "Refund R-1 issued for A-1002."}]
+}
+```
+
+The result of the entry agent often hides the inner steps. LangGraph Supervisor keeps only the last message of each sub-agent by default (`output_mode="last_message"`). In the OpenAI Agents SDK, `result.new_items` names the `agent` of each item and includes handoff items, but not the nested run of an `agent.as_tool()` call. Do not change how the agents share context to expose these steps, because that changes the system under test. Collect them from the event stream or callbacks of the framework instead, for example LangGraph `graph.stream(..., subgraphs=True)` or the `on_stream` callback of `as_tool()`. If a sub-agent runs in another service that does not return its steps, record only the request and the reply of that call.
+
+### Make the calls discoverable
+
+Add two sentences to the agent `description`, for example: "Each response lists the agent's tool calls in `metadata.tool_calls`, with their arguments, results, and errors. Point checks on tool use at the whole output, and name the field in the rule, for example "In tool_calls, there is no issue_refund call above 500."" For a multi-agent target, also say that each call names its `agent`, and that hidden messages between agents are in `metadata.agent_messages`. Hub users and scenario generators cannot read the code. A judge that reads only the answer text cannot see the calls, and passes a scenario in which the agent made an unsafe call. A rule that does not name the field can pass too, because the judge can treat it as unrelated to the answer.
+
+**Verify.** After the connection test passes, call `hub.agents.generate_completion(agent_id, input=...)` (MCP: `generate_agent_completion`) once, with a request that makes the target call a tool. For a multi-agent target, make the request reach a sub-agent. Make sure that the output lists the calls with their arguments, results, and agents. An empty list usually means that the wrapper reads the wrong messages. Calls of the entry agent only usually mean that the inner steps are hidden, as described above.
+
 ## Collecting a native stream
 
-Prefer a non-streaming call or the target SDK's final-result helper. Otherwise consume the iterator through successful completion. Concatenate text deltas in order; replace cumulative snapshots rather than concatenating them. Keep tool/status events out of the answer, and do not append a final full-text event to already collected deltas.
+Prefer a non-streaming call or the target SDK's final-result helper. Otherwise consume the iterator through successful completion. Concatenate text deltas in order; replace cumulative snapshots rather than concatenating them. Keep tool/status events out of the answer, and do not append a final full-text event to already collected deltas. If the wrapper returns tool calls, build them from the tool events.
 
 For remote SSE/NDJSON, parse complete events across network-buffer boundaries. For Structured output, assemble the fragments before parsing the final object. Preserve the final session ID and declared metadata. A disconnect or missing required completion marker is a failure, not a completed answer.
 
