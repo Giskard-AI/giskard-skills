@@ -63,7 +63,7 @@ CHAT_OUTPUT_SCHEMA = {
 }
 ```
 
-Map the complete incoming message list into the target's native history representation. If the target owns a thread instead, extract the current turn and its thread ID as described below, avoiding replay of messages the target already stored. Preserve the target's own system configuration.
+Map the complete incoming message list into the target's native history representation. If the target owns a thread instead, extract the current turn and its thread ID as described in [Multi-turn targets](#multi-turn-targets), avoiding replay of messages the target already stored. Preserve the target's own system configuration.
 
 ## Structured
 
@@ -90,20 +90,26 @@ Example request: `{"ticket": "My invoice was charged twice."}`. Example response
 
 For an agent with no user message (cron, webhook, or queue worker), or one whose risky inputs arrive through tool results, use the `{"trigger", "mocks"}` envelope in [triggered-agents.md](triggered-agents.md).
 
-## Multi-turn bindings
+## Multi-turn targets
 
-Pass `auto_bindings` explicitly to `hub.agents.create`. The [SDK reference](https://docs.giskard.ai/hub/sdk/reference#agent-types) defines two binding modes:
+Hub keeps each conversation and builds every request from the agent's `auto_bindings`, shown as **Interaction Context** in the Hub UI. Choose the bindings from where the target keeps history between turns, not from the Hub default. Pass them explicitly to `hub.agents.create`. The [SDK reference](https://docs.giskard.ai/hub/sdk/reference#agent-types) defines two binding modes:
 
-| Target behavior | `auto_bindings` |
-| --- | --- |
-| Stateless chat, needs full conversation | `[{"mode": "aggregate", "target": "messages", "outputs_path": "$.response"}]` |
-| Owns a thread, accepts `metadata.thread_id` | `[{"mode": "forward", "target": "metadata.thread_id", "source": "$.metadata.thread_id"}]` |
-| Structured target accepts a `session_id` | `[{"mode": "forward", "target": "session_id", "source": "$.session_id"}]` |
-| Independent calls with no conversation state | `[]` |
+| Where the target keeps history | `auto_bindings` | What the wrapper sends to the target |
+| --- | --- | --- |
+| The caller resends it on each call, in any format | `[{"mode": "aggregate", "target": "messages", "outputs_path": "$.response"}]` | All Hub `messages`, converted to the native history format |
+| The target stores it under a session, thread, or conversation ID | `[{"mode": "forward", "target": "metadata.thread_id", "source": "$.metadata.thread_id"}]` | Only the newest user message, with the forwarded ID |
+| A Structured target stores it under a declared `session_id` | `[{"mode": "forward", "target": "session_id", "source": "$.session_id"}]` | The current input, with the forwarded ID |
+| Nowhere, because each call is independent | `[]` | The current input |
 
-`target` is the destination field path; `source` and `outputs_path` are JSONPaths into the previous output. Use paths the wrapper actually accepts and returns. Do not substitute guessed fields such as `input_path` or `output_path`.
+`target` is the destination field path. `source` and `outputs_path` are JSONPaths into the previous output. Use paths the wrapper actually accepts and returns. Do not substitute guessed fields such as `input_path` or `output_path`.
 
-For history aggregation, the wrapper consumes Hub's combined history once. For forwarding, accept an absent state field on the first call, create a fresh conversation, and return its identifier on each successful turn. Chat wrappers can accept optional `metadata.thread_id` without changing the canonical schemas; Structured schemas should declare optional input state and returned output state. Use only the current turn with a forwarded session unless the native API also requires history.
+**History sent by the caller (aggregate).** Hub sends the whole conversation in `messages`, with the newest user message last. Convert it to the target's native history inside the wrapper. For example, pass the last message as `question` and the earlier ones as `chat_history`, rename `assistant` to `ai` or `model`, group turns into pairs, or join them into one transcript string. Keep every earlier turn, in order. If the wrapper sends only `messages[-1]`, each request starts a new conversation. When the target keeps history in an in-process object, such as a memory or chat-session object, prefer to rebuild that object from `messages` on each call. This keeps the wrapper stateless.
+
+**State stored by the target (forward).** Without an aggregate binding, Hub sends only the new turn in `messages`. Hub sends no ID on the first turn. Start a new native conversation, for example with the target's create-session call, and return its ID in `metadata.thread_id`. On later turns, read the forwarded ID, send only the newest user message, and return the ID again. If the target issues a new ID on each turn, such as a previous-response ID, return the newest one. Do not use the aggregate binding for this kind of target, and do not replay Hub's history into it. A new session for each request loses the conversation, and a replay into the stored session repeats turns. Chat wrappers can accept optional `metadata.thread_id` without changing the canonical schemas. Structured schemas should declare optional input state and returned output state.
+
+**Isolation.** Hub runs many conversations at the same time. Keep conversation state in the target or keyed by the forwarded ID. Never keep one global session, thread, or history list in the wrapper.
+
+Combine an aggregate and a forward binding only when the target needs both the history and an ID. Step 4 of the skill verifies the choice with the [two-turn check](hub-sdk.md#multi-turn-check).
 
 ## Collecting a native stream
 
