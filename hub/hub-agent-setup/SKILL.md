@@ -1,6 +1,6 @@
 ---
 name: hub-agent-setup
-description: Connect a local or remote AI agent to Giskard Hub through an authenticated, non-streaming HTTPS endpoint. Use when a user asks to connect, integrate, or register their agent with the Hub, including triggered (cron, webhook, event) agents with no user input that Hub tests through tool mocks. Build a minimal wrapper, deploy or tunnel it, and use the Hub connection test (SDK or MCP) to guide any fixes.
+description: Connect a local or remote AI agent to Giskard Hub through an authenticated, non-streaming HTTPS endpoint. Use when a user asks to connect, integrate, or register their agent with the Hub, including triggered (cron, webhook, event) agents. Build a minimal wrapper, deploy or tunnel it, and use the Hub connection test (SDK or MCP) to guide any fixes.
 license: Apache-2.0
 metadata:
   author: Giskard
