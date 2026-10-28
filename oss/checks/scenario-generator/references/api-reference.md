@@ -311,7 +311,9 @@ trace.interactions[0].outputs  # First interaction's output
 All keys **must** start with `trace.` -- anything else raises a `ValidationError` when the check is constructed:
 
 - `trace.last.outputs` -- most recent output (most common)
-- `trace.last.inputs` -- most recent input
+- `trace.last.inputs` -- most recent input (a string for chat, or the Hub `{trigger, mocks}` envelope for triggered agents)
+- `trace.last.inputs.trigger` -- kickoff sentinel or event payload on a triggered agent
+- `trace.last.inputs.mocks` -- tool mock rules on a triggered agent
 - `trace.last.outputs.answer` -- field of a structured output
 - `trace.last.metadata.some_key` -- metadata value
 - `trace.interactions[0].outputs` -- first turn output
@@ -783,6 +785,7 @@ spy_scenario = (
 - `WithSpy` is an `InteractionSpec`. Add it with `.extend(...)`, not `.interact(...)`, and give the inner `Interact` an explicit `outputs=` callable.
 - The spy payload lands in the interaction metadata under the `target` string, with `call_count`, `call_args`, `call_args_list`, and `mock_calls`.
 - This is the structural case where `FnCheck` is the right tool: the assertion is about call structure, not language.
+- The spy payload holds `unittest.mock` call objects, which are not JSON-serializable: `result.model_dump_json()` raises `PydanticSerializationError` (observed with `giskard-checks` 1.0.6), and LLM judges that serialize the trace can fail the same way. To combine tool-call assertions with `Conformity` or a saved report, record calls yourself and return `Interaction(inputs=inputs, outputs=..., metadata={"tool_calls": [{"name": ..., "arguments": {...}}]})` from the target (see Example 8 in `examples.md`).
 
 ## Generator Configuration
 
@@ -946,4 +949,6 @@ Requires `pip install "giskard[scan]"`. Generation itself costs LLM calls.
 - **`scen.trace.last.outputs` raises AttributeError**: `ScenarioResult` exposes `final_trace`.
 - **`ValueError: Provider 'ollama' is not configured and not in the registry`** (often wrapped in a `WorkflowError`, so check the exception cause): only the native providers are routed by default. Use `giskard.llm.configure(...)` or `LiteLLMGenerator`.
 - **`Groundedness` always passes / always fails**: check whether `context` (static) is shadowing `context_key`; the static value always wins.
+- **`PydanticSerializationError: ... '_Call' object` when saving results**: a `WithSpy` payload is in the trace. Record tool calls as plain dicts in `Interaction.metadata` instead (see `WithSpy`).
+- **Injection scenario on a cron agent passes trivially**: the payload was put in `trigger`, which the agent ignores. Put it in a tool result (Example 8).
 - **`AnswerRelevance` returns "relevant" for off-topic answers**: pass `context="..."` describing the agent's domain so the judge has scope to ground its decision.

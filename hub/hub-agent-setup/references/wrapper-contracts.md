@@ -88,6 +88,8 @@ STRUCTURED_OUTPUT_SCHEMA = {
 
 Example request: `{"ticket": "My invoice was charged twice."}`. Example response: `{"queue": "billing", "confidence": 0.95}`. Replace these example fields with the target's actual interface. Preserve structured types; do not JSON-encode an object into a string or invent a chat interface that changes the target's behavior.
 
+For an agent with no user message (cron, webhook, or queue worker), or one whose risky inputs arrive through tool results, use the `{"trigger", "mocks"}` envelope in [triggered-agents.md](triggered-agents.md).
+
 ## Multi-turn targets
 
 Hub keeps each conversation and builds every request from the agent's `auto_bindings`, shown as **Interaction Context** in the Hub UI. Choose the bindings from where the target keeps history between turns, not from the Hub default. Pass them explicitly to `hub.agents.create`. The [SDK reference](https://docs.giskard.ai/hub/sdk/reference#agent-types) defines two binding modes:
