@@ -4,7 +4,7 @@ description: Connect a local or remote AI agent to Giskard Hub through an authen
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.4.0
+  version: 1.5.0
   category: integration
   tags: [giskard, hub, agent, integration, https, tunnel, cron, tool-mocks, tool-calls]
 ---
