@@ -35,7 +35,7 @@ Say in the [description](agent-description.md) which role the test account has a
 Some targets accept requests only from allowed IP addresses, for example through a firewall, an API gateway, or a private network. Hub calls the endpoint from its own network. If Hub's address is not allowed, the connection test fails with a timeout or a `403`.
 
 - On the Giskard SaaS (`saas.giskard.cloud` and its subdomains), Hub sends requests from `20.19.229.114`. Ask the user to allow this address for the endpoint that Hub calls.
-- On another Hub instance, such as a dedicated or on-premise instance, the address is different. Ask the user to get it from the Giskard team. Do not guess it.
+- On another Hub instance, such as a dedicated or on-premise instance, the address is different. If you cannot find it, ask the user to get it from the Giskard team.
 - If the user cannot change the allowlist, run the wrapper on a machine that can reach the target, and expose it with a tunnel (step 3 of the skill). First confirm with the user that their security policy allows this.
 
 An allowlist does not replace the wrapper's API key. Keep both.
