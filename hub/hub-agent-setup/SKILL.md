@@ -88,4 +88,8 @@ The default verification is the Hub connection test, plus the two-turn check for
 
 ## 5. Finish
 
-Once Hub verifies the connection, tell the user it works and provide the HTTPS endpoint, agent ID, project, and brief run/stop instructions. Give the link to the agent page, `<hub>/p/<project_id>/agents/<agent_id>`. For `<hub>`, use `https://` plus `GISKARD_HUB_TENANT_HOST` when it is set, or else `GISKARD_HUB_BASE_URL` without a trailing `/` or `/_api`. Tell the user to open the page and click **Test connection**. Say whether the responses include tool calls. If the target gives no access to them, say which change in the target would expose them. Keep a local wrapper and tunnel alive; explain their temporary lifetime. If the tunnel URL changes, update the same Hub agent and re-test. Do not continue into extra testing or documentation by default.
+Once Hub verifies the connection, tell the user it works and provide the HTTPS endpoint, agent ID, project, and brief run/stop instructions. Give the link to the agent page, `<hub>/p/<project_id>/agents/<agent_id>`. For `<hub>`, use `https://` plus `GISKARD_HUB_TENANT_HOST` when it is set, or else `GISKARD_HUB_BASE_URL` without a trailing `/` or `/_api`. Tell the user to open the page and click **Test connection**. Say whether the responses include tool calls. If the target gives no access to them, say which change in the target would expose them. Keep a local wrapper and tunnel alive.
+
+With a tunnel, tell the user in the summary that the connection is temporary. It stops when the machine sleeps, the session ends, or the wrapper or tunnel stops. Tell them to ask you to reconnect if the connection drops. To reconnect, restart the wrapper and the tunnel. If the tunnel URL changes, update the URL of the same Hub agent and test the connection again.
+
+Do not continue into extra testing or documentation by default.
