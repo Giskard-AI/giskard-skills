@@ -4,7 +4,7 @@ description: Connect a local or remote AI agent to Giskard Hub through an authen
 license: Apache-2.0
 metadata:
   author: Giskard
-  version: 1.4.0
+  version: 1.5.0
   category: integration
   tags: [giskard, hub, agent, integration, https, tunnel, cron, tool-mocks, tool-calls]
 ---
@@ -19,7 +19,7 @@ Do not create a test suite, run broad audits or extra review passes, refactor un
 
 Identify the target agent first. A project can contain several agents, for example separate entry points, services, graphs, or chains. Sub-agents that only one entry point calls are part of that target, not separate candidates. If the user did not name the target and more than one candidate exists, list the candidates briefly with their locations and ask which one to register. Never pick one yourself. Continue without asking only when the user named the target or the project contains a single candidate.
 
-Locate the target's callable/API, input/output shape, streaming behavior, conversation state, how a run exposes its tool calls and any handoffs between agents, and whether it is already deployed. For conversation state, find where the history lives between turns. The caller resends it, the target stores it under a session or thread ID, or there is none. This decides the Interaction Context in steps 2 and 4. Infer its name, description, and supported languages. Ask only for missing connection details:
+Locate the target's callable/API, input/output shape, streaming behavior, conversation state, how a run exposes its tool calls and any handoffs between agents, and whether it is already deployed. For conversation state, find where the history lives between turns. The caller resends it, the target stores it under a session or thread ID, or there is none. This decides the Interaction Context in steps 2 and 4. Infer its name and supported languages. Collect the facts for a detailed [description](references/agent-description.md) from the sources that you can access, such as the system prompt, tool definitions, guardrails, and UI code. Ask only for missing connection details:
 
 - **Hub URL**.
 - **Hub API key**: link to [Finding your API key](https://docs.giskard.ai/hub/sdk/quickstart#finding-your-api-key); accept secure input or an already configured environment variable.
@@ -28,6 +28,8 @@ Locate the target's callable/API, input/output shape, streaming behavior, conver
 If the target calls tools or other agents that its output does not include, and the wrapper can read these steps from code in the workspace, ask in the same message whether the wrapper should return them. Hub then receives the tool arguments and results, and the messages between agents, which the target does not expose by default.
 
 If the target has no user message (a cron job, scheduler, webhook, or queue worker that reads state through tools and acts through write tools), it is a **triggered agent**. Follow [triggered-agents.md](references/triggered-agents.md) as well: register it as Structured with a `{"trigger", "mocks"}` envelope and document its mockable tools in the Hub description. For a hybrid chat and cron agent, ask which mode to register, or register both.
+
+If the target takes or returns audio, needs a user sign-in, or accepts only allowed IP addresses, also follow the matching section of [special-targets.md](references/special-targets.md).
 
 Use the `giskard-hub` Python SDK when Python 3.10+ is available. Without Python, connect to the Giskard Hub MCP server and use its tools for the same steps. See [hub-sdk.md](references/hub-sdk.md#without-python-hub-mcp).
 
@@ -78,9 +80,9 @@ Expose only the wrapper service. Append its invocation path to the **actual HTTP
 
 Use Python 3.10+ and the **`giskard-hub` SDK**, or the Hub MCP tools when Python is unavailable. See [hub-sdk.md](references/hub-sdk.md) for the short example, the MCP tool names, and authoritative docs.
 
-1. Call `hub.agents.create` (MCP: `create_agent`) with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead. For a triggered agent, append the "Mockable tools" section to `description` as shown in [triggered-agents.md](references/triggered-agents.md#make-the-mock-surface-discoverable). If the wrapper returns tool calls, add the [tool-call sentences](references/wrapper-contracts.md#make-the-calls-discoverable) to `description`.
+1. Call `hub.agents.create` (MCP: `create_agent`) with `project_id`, `name`, `description`, full HTTPS `url`, authentication `headers`, `supported_languages`, `input_schema`, `output_schema`, and `auto_bindings`. Use history/state bindings for multi-turn targets and `[]` for independent calls. If the user supplied an existing Hub agent, update that record instead. Write `description` as shown in [Agent description](references/agent-description.md), not as a one-paragraph summary. For a triggered agent, append the "Mockable tools" section to `description` as shown in [triggered-agents.md](references/triggered-agents.md#make-the-mock-surface-discoverable). If the wrapper returns tool calls, add the [tool-call sentences](references/wrapper-contracts.md#make-the-calls-discoverable) to `description`.
 2. Retain the returned ID and **immediately call `hub.agents.test_connection`** (MCP: `test_agent_connection`) with that ID, URL, project, headers, and input schema. Hub makes the request to the wrapper; local DNS trouble reaching the tunnel does not establish that Hub cannot reach it.
-3. Inspect the actual result and error details. If it fails, fix the reported URL, credentials, adapter, schema, or network issue and re-test the same registration. Do not recreate agents or perform speculative refactoring. Stop with a concrete blocker if credentials, permissions, or connectivity cannot be obtained.
+3. Inspect the actual result and error details. If it fails, fix the reported URL, credentials, adapter, schema, or network issue and re-test the same registration. A timeout or `403` from an endpoint behind an IP allowlist needs [Hub's IP address](references/special-targets.md#ip-filtering). Do not recreate agents or perform speculative refactoring. Stop with a concrete blocker if credentials, permissions, or connectivity cannot be obtained.
 4. For a multi-turn target, run the [two-turn check](references/hub-sdk.md#multi-turn-check) after the connection test passes. The connection test sends one request, so it cannot show that two requests continue one conversation on the target's side. If the check fails, fix the wrapper or the `auto_bindings` of the same agent, then run the check again.
 5. If a Chat or Structured wrapper returns tool calls, make one request that makes the target call a tool, or reach a sub-agent in a multi-agent system. Make sure that the output lists the calls. See [Tool calls](references/wrapper-contracts.md#tool-calls).
 
@@ -88,4 +90,8 @@ The default verification is the Hub connection test, plus the two-turn check for
 
 ## 5. Finish
 
-Once Hub verifies the connection, tell the user it works and provide the HTTPS endpoint, agent ID, project, and brief run/stop instructions. Say whether the responses include tool calls. If the target gives no access to them, say which change in the target would expose them. Keep a local wrapper and tunnel alive; explain their temporary lifetime. If the tunnel URL changes, update the same Hub agent and re-test. Do not continue into extra testing or documentation by default.
+Once Hub verifies the connection, tell the user it works and provide the HTTPS endpoint, agent ID, project, and brief run/stop instructions. Give the link to the agent page, `<hub>/p/<project_id>/agents/<agent_id>`. For `<hub>`, use `https://` plus `GISKARD_HUB_TENANT_HOST` when it is set, or else `GISKARD_HUB_BASE_URL` without a trailing `/` or `/_api`. Tell the user to open the page and click **Test connection**. Say whether the responses include tool calls. If the target gives no access to them, say which change in the target would expose them. Keep a local wrapper and tunnel alive.
+
+With a tunnel, tell the user in the summary that the connection is temporary. It stops when the machine sleeps, the session ends, or the wrapper or tunnel stops. Tell them to ask you to reconnect if the connection drops. To reconnect, restart the wrapper and the tunnel. If the tunnel URL changes, update the URL of the same Hub agent and test the connection again.
+
+Do not continue into extra testing or documentation by default.
