@@ -156,7 +156,7 @@ These are the only local agent runs to make before the first Hub attempt. They a
 
 Hub callers such as automated scenario generators cannot read the code, so they do not know which tools exist, which arguments they take, or what they return. Document this in two places when you register the agent.
 
-**1. Agent `description` (primary).** Keep the usual one-paragraph description, then append:
+**1. Agent `description` (primary).** Write the usual [agent description](agent-description.md) without its Tools list, then append:
 
 ```markdown
 Triggered agent (no user message). Send `trigger: "[CRON] run"`. Override tool results with
