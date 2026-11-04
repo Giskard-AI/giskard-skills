@@ -74,8 +74,8 @@ Configure credentials only for the skills and providers you use. Keep secrets in
 
 | Integration | Configuration |
 | --- | --- |
-| Giskard Hub | `GISKARD_HUB_BASE_URL` for your Hub instance and `GISKARD_HUB_API_KEY` for SDK or MCP access. Hub setup also needs a project name or ID. |
-| Agent wrapper | `AGENT_WRAPPER_API_KEY`, generated separately from the Hub key. Hub receives this key as the registered agent's authentication header so it can call the wrapper. The Hub API key is never sent to the wrapper. |
+| Giskard Hub | `GISKARD_HUB_BASE_URL` for your Hub instance and `GISKARD_HUB_API_KEY` for SDK or MCP access. Set the optional `GISKARD_HUB_TENANT_HOST` when the host in the base URL is not your tenant host. Hub setup also needs a project name or ID. |
+| Agent wrapper | `AGENT_WRAPPER_API_KEY`, generated separately from the Hub key. Hub receives this key as the registered agent's authentication header so it can call the wrapper. The Hub API key is never sent to the wrapper. A wrapper for a target that needs a user sign-in also keeps a test account's credentials, and a wrapper for a voice agent keeps the speech provider's credentials. These stay in the wrapper's environment and are never sent to Hub. |
 | Collibra | `COLLIBRA_URL`, `COLLIBRA_USER`, `COLLIBRA_PASSWORD`, and `COLLIBRA_DOMAIN_ID`, in addition to the Hub configuration. See [env.example](integrations/giskard-to-collibra/env.example). The export script loads `.env` from the working directory and its script directory; existing environment variables take precedence. |
 | Model providers | The configured provider's credentials, such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY`. The `azure_ai/...` model prefix uses `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT`; `azure/...` uses `AZURE_API_KEY` and `AZURE_API_BASE`. |
 
@@ -91,6 +91,7 @@ Depending on the skill, data is shared with:
 | Your agent's endpoint | Receives test inputs and returns responses during connection tests and evaluations. When the wrapper reports tool calls, the responses also send the arguments and results of these calls, and any messages between agents, to Hub. |
 | Collibra (`COLLIBRA_URL`, HTTPS) | Receives agent/probe metadata, endpoint URLs, scan IDs/dates, and pass/fail metrics to create or update governance assets. |
 | Configured model and embedding providers | Receive descriptions, prompts, agent outputs, judging criteria, and supplied document text for generation and evaluation. |
+| Speech services (voice agents only) | Receive Hub test messages to convert to audio, and the agent's audio replies to convert to text. |
 | Cloudflare Tunnel or ngrok (optional) | Carries Hub requests and agent responses through a public HTTPS URL protected by the wrapper's API key. |
 
 Installation uses GitHub, package registries, and optional tunnel CLI downloads. Collibra exports also save metadata locally in `import_agents.json`; evaluations may save reports. Third-party conversions read result files locally and save one `SuiteResult` JSON file per tool. They contact the Hub only when you choose to upload. `giskard-checks` sends anonymous usage telemetry (such as scenario and status counts) to PostHog when it writes a suite, and the `giskard-hub` SDK sends usage events (such as client initialization and errors, with an ID derived from the API key) when the skill lists projects or agents or uploads; set `GISKARD_TELEMETRY_DISABLED=1` to turn both off. Your coding agent and target agent retain their own service connections and data-handling settings.
