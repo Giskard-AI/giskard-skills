@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 from giskard_hub import HubClient
 from giskard_hub.types import Severity
+from requests.auth import HTTPBasicAuth
 
 MAX_MONITORS = 36  # Collibra's Quality-tab chart limit
 
@@ -117,11 +118,11 @@ def main():
             print(f"{p.id}  {p.name}")
         return
 
-    collibra_url, domain_id, user, password = require_env(
+    collibra_url, domain_id, *login = require_env(
         "COLLIBRA_URL", "COLLIBRA_DOMAIN_ID", "COLLIBRA_USER", "COLLIBRA_PASSWORD"
     )
     collibra_url = collibra_url.rstrip("/")
-    auth = (user, password)
+    auth = HTTPBasicAuth(*login)
 
     scan = resolve_scan(hub, args)
     agent = hub.agents.retrieve(scan.agent.id)
