@@ -30,11 +30,12 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: '3.14'
-          cache-dependency-glob: scripts/requirements-smoke.txt
+          enable-cache: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: matrix.target == 'claude' || matrix.target == 'skills'
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Check shared packaging
         run: uv run --no-project --with-requirements scripts/requirements-smoke.txt scripts/smoke_plugins.py packaging
       - name: Validate Claude plugin
