@@ -73,7 +73,7 @@ def check_multi_turn(hub, agent_id, make_input, read_reply):
 
 For Chat, use `make_input = lambda text: {"messages": [{"role": "user", "content": text}]}` and `read_reply = lambda out: out["response"]["content"]`. For Structured, use the target's input and answer fields. With MCP, call `generate_agent_completion` with the same `input` and `interactions` arguments.
 
-The check passes when turn 2 uses the code word and the new conversation does not. If the wrapper returns a target conversation ID, it must be the same in turns 1 and 2 and different in the new conversation. If the target refuses unrelated requests, change `word` and the two messages to a fact the target accepts, such as the user's name, and read the outputs yourself. When the outputs are unclear, look at the wrapper or target logs to see what the target received.
+The check passes when turn 2 uses the code word and the new conversation does not. For a stateful target, the outputs also contain the target's conversation ID. It must be the same in turns 1 and 2 and different in the new conversation. If a stateful target returns no ID, the wrapper made it stateless. If the target refuses unrelated requests, change `word` and the two messages to a fact the target accepts, such as the user's name, and read the outputs yourself. When the outputs are unclear, look at the wrapper or target logs to see what the target received.
 
 | Result | Likely cause | Fix |
 | --- | --- | --- |
